@@ -34,6 +34,11 @@ def status():
     return bot_status, 200
 
 
+@app.route("/api")
+def api():
+    return {"status": "ok"}, 200
+
+
 def run_trading_bot():
     async def start_bot():
         print("=" * 60)
