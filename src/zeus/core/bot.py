@@ -82,6 +82,15 @@ class ZeusBot:
         logger.info("Zeus Bot stopped.")
 
     async def _refresh_balance(self) -> None:
+        if self.mode == "PAPER":
+            current_equity = self.state.state.equity
+            if current_equity <= 0:
+                await self.state.update_equity(10000.0)
+                logger.info("Paper trading: Initialized with $10,000 virtual balance")
+            else:
+                logger.info(f"Paper trading balance: ${current_equity:.2f}")
+            self.risk_manager.update_portfolio(self.state.state.equity, [])
+            return
         try:
             balances = await self.exchange.fetch_balance()
             usd_balance = balances.get("USD", balances.get("ZUSD"))
@@ -92,6 +101,7 @@ class ZeusBot:
             await self.state.update_equity(equity)
             holdings = {k: v.total for k, v in balances.items() if v.total > 0}
             await self.state.update_holdings(holdings)
+            self.risk_manager.update_portfolio(equity, [])
             logger.info(f"Balance refreshed: ${equity:.2f}")
         except Exception as e:
             logger.error(f"Failed to refresh balance: {e}")
