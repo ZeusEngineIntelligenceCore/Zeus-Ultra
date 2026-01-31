@@ -11,17 +11,20 @@ import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from flask import Flask
+from flask import render_template
+from flask_login import current_user
+from app import app
+from replit_auth import make_replit_blueprint, require_login
 from src.zeus.core.bot import ZeusBot
 
-app = Flask(__name__)
+app.register_blueprint(make_replit_blueprint(), url_prefix="/auth")
 
 bot_status = {"running": False, "mode": "UNKNOWN", "error": None}
 
 
 @app.route("/")
-def health_check():
-    return {"status": "healthy", "bot_running": bot_status["running"], "mode": bot_status["mode"]}, 200
+def index():
+    return render_template("index.html", user=current_user, bot_status=bot_status)
 
 
 @app.route("/health")
@@ -37,6 +40,12 @@ def status():
 @app.route("/api")
 def api():
     return {"status": "ok"}, 200
+
+
+@app.route("/dashboard")
+@require_login
+def dashboard():
+    return render_template("index.html", user=current_user, bot_status=bot_status)
 
 
 def run_trading_bot():

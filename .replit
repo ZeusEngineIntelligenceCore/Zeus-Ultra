@@ -1,6 +1,7 @@
 modules = ["python-3.11"]
 [agent]
 expertMode = true
+integrations = ["python_log_in_with_replit:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
