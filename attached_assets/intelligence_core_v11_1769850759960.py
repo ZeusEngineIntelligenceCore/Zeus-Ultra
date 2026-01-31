@@ -731,7 +731,6 @@ async def main():
 
     async with KrakenFeed(api_key, api_secret) as feed:
         target_pairs = await discover_usd_pairs(feed)
-        print(f"🧠 Discovered {len(target_pairs)} USD pairs (stablecoin bases removed).")
 
         while True:
             try:
