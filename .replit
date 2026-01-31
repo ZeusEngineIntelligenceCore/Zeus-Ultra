@@ -37,3 +37,8 @@ run = ["bash", "-c", "gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 2 main:
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+TRADING_MODE = "LIVE"
