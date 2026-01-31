@@ -32,7 +32,7 @@ waitForPort = 5000
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["bash", "-c", "gunicorn --bind 0.0.0.0:5000 --workers 1 --threads 2 main:app & python -c \"import asyncio; from main import main; asyncio.run(main())\""]
+run = ["python", "main.py"]
 
 [[ports]]
 localPort = 5000
