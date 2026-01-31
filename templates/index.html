@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zeus Trading Bot</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            margin-bottom: 3rem;
+        }
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .nav-buttons {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-primary {
+            background: #4299e1;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #3182ce;
+        }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+        }
+        .btn-outline:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .hero {
+            text-align: center;
+            padding: 4rem 0;
+        }
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(to right, #4299e1, #9f7aea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .hero p {
+            font-size: 1.25rem;
+            color: #a0aec0;
+            max-width: 600px;
+            margin: 0 auto 2rem;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid #4299e1;
+        }
+        .user-name {
+            font-weight: 500;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card h3 {
+            margin-top: 0;
+            color: #a0aec0;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+        }
+        .card-value {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+        .status-running {
+            color: #48bb78;
+        }
+        .status-stopped {
+            color: #f56565;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <span>Zeus Trading Bot</span>
+            </div>
+            <div class="nav-buttons">
+                {% if user and user.is_authenticated %}
+                    <div class="user-info">
+                        {% if user.profile_image_url %}
+                            <img src="{{ user.profile_image_url }}" alt="Profile" class="user-avatar">
+                        {% endif %}
+                        <span class="user-name">{{ user.first_name or user.email or 'User' }}</span>
+                    </div>
+                    <a href="{{ url_for('replit_auth.logout') }}" class="btn btn-outline">Log Out</a>
+                {% else %}
+                    <a href="{{ url_for('replit_auth.login') }}" class="btn btn-primary">Log In</a>
+                {% endif %}
+            </div>
+        </header>
+
+        <section class="hero">
+            <h1>Zeus Trading Bot</h1>
+            <p>Advanced Autonomous Cryptocurrency Trading System</p>
+            
+            {% if user and user.is_authenticated %}
+                <p style="color: #48bb78;">Welcome back, {{ user.first_name or 'Trader' }}!</p>
+            {% else %}
+                <p style="color: #a0aec0;">Log in to access the trading dashboard</p>
+            {% endif %}
+        </section>
+
+        {% if user and user.is_authenticated %}
+        <div class="dashboard">
+            <div class="card">
+                <h3>Bot Status</h3>
+                <div class="card-value {% if bot_status.running %}status-running{% else %}status-stopped{% endif %}">
+                    {{ 'Running' if bot_status.running else 'Stopped' }}
+                </div>
+            </div>
+            <div class="card">
+                <h3>Trading Mode</h3>
+                <div class="card-value">{{ bot_status.mode }}</div>
+            </div>
+            <div class="card">
+                <h3>Account</h3>
+                <div class="card-value" style="font-size: 1rem;">{{ user.email or 'No email' }}</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

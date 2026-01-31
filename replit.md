@@ -5,7 +5,13 @@ Zeus is a professional-grade autonomous cryptocurrency trading bot designed for 
 
 ## Project Structure
 ```
-├── main.py                    # Main entry point
+├── main.py                    # Main entry point with Flask routes
+├── app.py                     # Flask app configuration with database
+├── models.py                  # Database models (User, OAuth)
+├── replit_auth.py             # Replit Auth integration
+├── templates/                 # HTML templates
+│   ├── index.html            # Main landing/dashboard page
+│   └── 403.html              # Error page
 ├── src/zeus/
 │   ├── core/
 │   │   ├── bot.py            # Main trading bot engine
@@ -40,6 +46,14 @@ Zeus is a professional-grade autonomous cryptocurrency trading bot designed for 
 - `TELEGRAM_BOT_TOKEN`: Telegram bot token (optional)
 - `TELEGRAM_CHAT_ID`: Your Telegram chat ID (optional)
 - `TRADING_MODE`: Set to "PAPER" or "LIVE"
+- `SESSION_SECRET`: Session encryption key (auto-generated)
+
+## Authentication
+The app uses Replit Auth for user authentication, supporting:
+- Google, GitHub, X (Twitter), Apple login
+- Email/password authentication
+- Protected routes with `@require_login` decorator
+- User profile storage in PostgreSQL database
 
 ## Running the Bot
 The bot runs automatically via the configured workflow. It will:
@@ -57,4 +71,5 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Added Replit Auth integration (January 2026)
 - Initial implementation (January 2026)
