@@ -22,13 +22,18 @@ args = "Zeus Trading Bot"
 name = "Zeus Trading Bot"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python main.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
+waitForPort = 5000
 
 [deployment]
-deploymentTarget = "vm"
+deploymentTarget = "autoscale"
 run = ["python", "main.py"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80
