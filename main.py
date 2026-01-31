@@ -32,7 +32,6 @@ async def main():
         print("")
 
     print(f"\n[MODE] Running in {mode} mode")
-    print(f"[TELEGRAM] {'Enabled' if telegram_token else 'Disabled'}")
     print("")
 
     bot = ZeusBot(
