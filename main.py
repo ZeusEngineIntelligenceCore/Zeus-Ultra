@@ -7,10 +7,31 @@ Main entry point for the trading bot
 import asyncio
 import os
 import sys
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from flask import Flask
 from src.zeus.core.bot import ZeusBot
+
+app = Flask(__name__)
+
+bot_status = {"running": False, "mode": "UNKNOWN"}
+
+
+@app.route("/")
+def health_check():
+    return {"status": "healthy", "bot_running": bot_status["running"], "mode": bot_status["mode"]}, 200
+
+
+@app.route("/health")
+def health():
+    return {"status": "ok"}, 200
+
+
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 
 async def main():
@@ -34,6 +55,9 @@ async def main():
     print(f"\n[MODE] Running in {mode} mode")
     print("")
 
+    bot_status["mode"] = mode
+    bot_status["running"] = True
+
     bot = ZeusBot(
         kraken_key=kraken_key,
         kraken_secret=kraken_secret,
@@ -46,6 +70,10 @@ async def main():
 
 
 if __name__ == "__main__":
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print("[HEALTH] Health check server started on port 5000")
+    
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
