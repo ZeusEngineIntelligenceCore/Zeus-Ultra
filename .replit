@@ -30,4 +30,5 @@ args = "python main.py"
 outputType = "console"
 
 [deployment]
-deploymentTarget = "cloudrun"
+deploymentTarget = "vm"
+run = ["python", "main.py"]
