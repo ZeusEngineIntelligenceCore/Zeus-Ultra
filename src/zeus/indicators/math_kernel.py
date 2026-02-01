@@ -365,13 +365,19 @@ class MathKernel:
     def momentum_oscillator(cls, close: List[float], length: int = 10) -> float:
         if len(close) < length + 1:
             return 0.0
-        return ((close[-1] / close[-length - 1]) - 1) * 100
+        base_price = close[-length - 1]
+        if abs(base_price) < cls.EPS:
+            return 0.0
+        return ((close[-1] / base_price) - 1) * 100
 
     @classmethod
     def rate_of_change(cls, close: List[float], length: int = 12) -> float:
         if len(close) < length + 1:
             return 0.0
-        return ((close[-1] - close[-length - 1]) / close[-length - 1]) * 100
+        base_price = close[-length - 1]
+        if abs(base_price) < cls.EPS:
+            return 0.0
+        return ((close[-1] - base_price) / base_price) * 100
 
     @classmethod
     def chaikin_money_flow(cls, high: List[float], low: List[float], close: List[float], 
