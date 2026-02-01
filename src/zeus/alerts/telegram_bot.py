@@ -37,6 +37,14 @@ class AlertConfig:
     alert_on_tp_hit: bool = True
     quiet_hours_start: int = 0
     quiet_hours_end: int = 0
+    batch_interval_minutes: int = 30
+
+
+@dataclass
+class BatchedAlert:
+    message: str
+    timestamp: datetime
+    alert_type: str
 
 
 class TelegramAlerts:
@@ -48,6 +56,9 @@ class TelegramAlerts:
         self._initialized = False
         self._message_queue: List[str] = []
         self._last_message_time: Optional[datetime] = None
+        self._batched_alerts: List[BatchedAlert] = []
+        self._last_batch_sent: Optional[datetime] = None
+        self._urgent_types = {"error", "trade_closed", "bot_status", "trade_opened"}
 
     async def initialize(self) -> bool:
         if not TELEGRAM_AVAILABLE:
@@ -66,10 +77,19 @@ class TelegramAlerts:
             logger.error(f"Failed to initialize Telegram bot: {e}")
             return False
 
-    async def send_message(self, message: str, parse_mode: str = "HTML") -> bool:
+    async def send_message(self, message: str, parse_mode: str = "HTML", urgent: bool = False, alert_type: str = "general") -> bool:
         if not self._initialized or not self.bot:
             self._message_queue.append(message)
             return False
+        is_urgent = urgent or alert_type in self._urgent_types
+        if not is_urgent:
+            self._batched_alerts.append(BatchedAlert(
+                message=message,
+                timestamp=datetime.now(timezone.utc),
+                alert_type=alert_type
+            ))
+            await self._check_and_send_batch()
+            return True
         try:
             await self.bot.send_message(
                 chat_id=self.chat_id,
@@ -81,6 +101,51 @@ class TelegramAlerts:
         except TelegramError as e:
             logger.error(f"Failed to send Telegram message: {e}")
             return False
+
+    async def _check_and_send_batch(self) -> bool:
+        if not self._batched_alerts:
+            return False
+        now = datetime.now(timezone.utc)
+        if self._last_batch_sent:
+            elapsed = (now - self._last_batch_sent).total_seconds() / 60
+            if elapsed < self.config.batch_interval_minutes:
+                return False
+        return await self._send_batched_alerts()
+
+    async def _send_batched_alerts(self) -> bool:
+        if not self._batched_alerts or not self._initialized or not self.bot:
+            return False
+        alerts_by_type: Dict[str, List[BatchedAlert]] = {}
+        for alert in self._batched_alerts:
+            if alert.alert_type not in alerts_by_type:
+                alerts_by_type[alert.alert_type] = []
+            alerts_by_type[alert.alert_type].append(alert)
+        summary_parts = [f"📋 <b>ZEUS ALERT SUMMARY</b> ({len(self._batched_alerts)} alerts)\n"]
+        for alert_type, alerts in alerts_by_type.items():
+            type_name = alert_type.replace("_", " ").title()
+            summary_parts.append(f"\n<b>{type_name}</b> ({len(alerts)}):")
+            for alert in alerts[-3:]:
+                short_msg = alert.message.split('\n')[2] if len(alert.message.split('\n')) > 2 else alert.message[:100]
+                summary_parts.append(f"• {short_msg.strip()}")
+            if len(alerts) > 3:
+                summary_parts.append(f"  ... and {len(alerts) - 3} more")
+        summary_parts.append(f"\n⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        summary = "\n".join(summary_parts)
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=summary,
+                parse_mode="HTML"
+            )
+            self._last_batch_sent = datetime.now(timezone.utc)
+            self._batched_alerts.clear()
+            return True
+        except TelegramError as e:
+            logger.error(f"Failed to send batched alerts: {e}")
+            return False
+
+    async def force_send_batch(self) -> bool:
+        return await self._send_batched_alerts()
 
     async def send_signal_alert(self, signal: TradingSignal) -> bool:
         if not self.config.send_signals:
@@ -109,7 +174,7 @@ class TelegramAlerts:
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
-        return await self.send_message(message.strip())
+        return await self.send_message(message.strip(), alert_type="signal")
 
     async def send_trade_opened(
         self,
@@ -137,7 +202,7 @@ class TelegramAlerts:
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
-        return await self.send_message(message.strip())
+        return await self.send_message(message.strip(), alert_type="trade_opened")
 
     async def send_trade_closed(
         self,
@@ -169,7 +234,7 @@ class TelegramAlerts:
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
-        return await self.send_message(message.strip())
+        return await self.send_message(message.strip(), alert_type="trade_closed")
 
     async def send_prebreakout_alert(
         self,
@@ -200,7 +265,7 @@ class TelegramAlerts:
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
-        return await self.send_message(message.strip())
+        return await self.send_message(message.strip(), alert_type="prebreakout")
 
     async def send_portfolio_update(self, report: Dict[str, Any]) -> bool:
         if not self.config.send_portfolio_updates:
@@ -228,7 +293,7 @@ class TelegramAlerts:
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
-        return await self.send_message(message.strip())
+        return await self.send_message(message.strip(), alert_type="portfolio_update")
 
     async def send_daily_summary(
         self,
@@ -259,7 +324,7 @@ class TelegramAlerts:
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d')}
 """
-        return await self.send_message(message.strip())
+        return await self.send_message(message.strip(), alert_type="daily_summary")
 
     async def send_error_alert(self, error_type: str, message: str) -> bool:
         alert = f"""
@@ -270,7 +335,7 @@ class TelegramAlerts:
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
-        return await self.send_message(alert.strip())
+        return await self.send_message(alert.strip(), alert_type="error")
 
     async def send_bot_status(self, status: str, mode: str, pairs_count: int) -> bool:
         status_emoji = "🟢" if status == "RUNNING" else "🔴" if status == "STOPPED" else "🟡"
@@ -283,7 +348,7 @@ class TelegramAlerts:
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
-        return await self.send_message(message.strip())
+        return await self.send_message(message.strip(), alert_type="bot_status")
 
     def _get_signal_emoji(self, signal_type: SignalType) -> str:
         emoji_map = {
