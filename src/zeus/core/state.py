@@ -46,6 +46,8 @@ class TradeRecord:
     volume_at_entry: float = 0.0
     is_manual: bool = False
     protected: bool = False
+    sell_order_id: Optional[str] = None
+    mtf_alignment: float = 0.0
 
 
 @dataclass

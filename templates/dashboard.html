@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zeus Trading Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+        }
+        .header {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .logo { font-size: 1.5rem; font-weight: bold; color: #4299e1; }
+        .user-info { display: flex; align-items: center; gap: 1rem; }
+        .user-avatar { width: 36px; height: 36px; border-radius: 50%; border: 2px solid #4299e1; }
+        .time-display { color: #a0aec0; font-size: 0.875rem; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+        .toggle-section {
+            background: linear-gradient(135deg, rgba(66,153,225,0.2), rgba(159,122,234,0.2));
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .toggle-info h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .toggle-info p { color: #a0aec0; }
+        .toggle-switch {
+            position: relative;
+            width: 80px;
+            height: 40px;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #4a5568;
+            transition: 0.4s;
+            border-radius: 40px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 32px;
+            width: 32px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #48bb78; }
+        input:checked + .slider:before { transform: translateX(40px); }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .stat-label { color: #a0aec0; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { font-size: 1.75rem; font-weight: bold; margin-top: 0.5rem; }
+        .stat-value.green { color: #48bb78; }
+        .stat-value.blue { color: #4299e1; }
+        .stat-value.yellow { color: #ecc94b; }
+        .stat-value.purple { color: #9f7aea; }
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+        .panel {
+            background: rgba(255,255,255,0.05);
+            border-radius: 1rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            overflow: hidden;
+        }
+        .panel-header {
+            background: rgba(0,0,0,0.2);
+            padding: 1rem 1.25rem;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .panel-body { padding: 1rem; max-height: 400px; overflow-y: auto; }
+        .trade-item, .candidate-item {
+            background: rgba(0,0,0,0.2);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            border-left: 3px solid #4299e1;
+        }
+        .trade-item.sell { border-left-color: #f56565; }
+        .trade-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
+        .trade-symbol { font-weight: 600; font-size: 1rem; }
+        .trade-side { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; }
+        .trade-side.buy { background: #2f855a; }
+        .trade-side.sell { background: #c53030; }
+        .trade-details { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.875rem; color: #a0aec0; }
+        .candidate-item { border-left-color: #9f7aea; }
+        .candidate-score { font-size: 1.25rem; font-weight: bold; color: #48bb78; }
+        .candidate-stage { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; background: #553c9a; }
+        .empty-state { text-align: center; padding: 2rem; color: #718096; }
+        .refresh-btn {
+            background: #4299e1;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            color: white;
+            cursor: pointer;
+            font-size: 0.875rem;
+        }
+        .refresh-btn:hover { background: #3182ce; }
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 0.5rem;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.running { background: #48bb78; }
+        .status-dot.stopped { background: #f56565; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .log-output {
+            background: #0d1117;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            max-height: 300px;
+            overflow-y: auto;
+            color: #8b949e;
+        }
+        .log-line { margin-bottom: 0.25rem; }
+        .log-time { color: #58a6ff; }
+        .log-info { color: #3fb950; }
+        .log-warn { color: #d29922; }
+        .log-error { color: #f85149; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">Zeus Trading Dashboard</div>
+        <div class="user-info">
+            <span class="time-display" id="currentTime">{{ current_time }}</span>
+            {% if user.profile_image_url %}
+                <img src="{{ user.profile_image_url }}" alt="Profile" class="user-avatar">
+            {% endif %}
+            <span>{{ user.first_name or user.email or 'Trader' }}</span>
+            <a href="/" style="color: #4299e1; text-decoration: none;">Home</a>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="toggle-section">
+            <div class="toggle-info">
+                <h2>
+                    <span class="status-dot {{ 'running' if bot_status.running else 'stopped' }}" id="statusDot"></span>
+                    Bot Status: <span id="botStatusText">{{ 'Running' if bot_status.running else 'Stopped' }}</span>
+                </h2>
+                <p>Mode: <strong id="tradingMode">{{ bot_status.mode }}</strong> | 
+                   Started: <span id="uptimeStart">{{ bot_status.uptime_start or 'N/A' }}</span></p>
+            </div>
+            <label class="toggle-switch">
+                <input type="checkbox" id="botToggle" {{ 'checked' if bot_status.running else '' }}>
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Balance</div>
+                <div class="stat-value blue" id="balance">$<span>{{ "%.2f"|format(bot_status.balance) }}</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Active Trades</div>
+                <div class="stat-value green" id="activeTrades">{{ bot_status.active_trades }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Top Candidates</div>
+                <div class="stat-value purple" id="candidates">{{ bot_status.candidates_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Profit</div>
+                <div class="stat-value yellow" id="totalProfit">${{ "%.2f"|format(bot_status.total_profit) }}</div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Active Trades</span>
+                    <button class="refresh-btn" onclick="refreshTrades()">Refresh</button>
+                </div>
+                <div class="panel-body" id="tradesPanel">
+                    <div class="empty-state">Loading trades...</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Top 20 Candidates</span>
+                    <button class="refresh-btn" onclick="refreshCandidates()">Refresh</button>
+                </div>
+                <div class="panel-body" id="candidatesPanel">
+                    <div class="empty-state">Loading candidates...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const botToggle = document.getElementById('botToggle');
+        
+        botToggle.addEventListener('change', async function() {
+            try {
+                const response = await fetch('/api/bot/toggle', { method: 'POST' });
+                const data = await response.json();
+                updateStatus();
+            } catch (error) {
+                console.error('Toggle error:', error);
+                botToggle.checked = !botToggle.checked;
+            }
+        });
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                
+                document.getElementById('currentTime').textContent = data.current_time;
+                document.getElementById('botStatusText').textContent = data.running ? 'Running' : 'Stopped';
+                document.getElementById('statusDot').className = 'status-dot ' + (data.running ? 'running' : 'stopped');
+                document.getElementById('tradingMode').textContent = data.mode;
+                document.getElementById('uptimeStart').textContent = data.uptime_start || 'N/A';
+                document.getElementById('balance').innerHTML = '$' + parseFloat(data.balance || 0).toFixed(2);
+                document.getElementById('activeTrades').textContent = data.active_trades || 0;
+                document.getElementById('candidates').textContent = data.candidates_count || 0;
+                document.getElementById('totalProfit').textContent = '$' + parseFloat(data.total_profit || 0).toFixed(2);
+                
+                botToggle.checked = data.running;
+            } catch (error) {
+                console.error('Status update error:', error);
+            }
+        }
+
+        async function refreshTrades() {
+            try {
+                const response = await fetch('/api/trades');
+                const data = await response.json();
+                const panel = document.getElementById('tradesPanel');
+                
+                if (!data.trades || data.trades.length === 0) {
+                    panel.innerHTML = '<div class="empty-state">No active trades</div>';
+                    return;
+                }
+                
+                panel.innerHTML = data.trades.map(trade => `
+                    <div class="trade-item ${trade.side}">
+                        <div class="trade-header">
+                            <span class="trade-symbol">${trade.symbol}</span>
+                            <span class="trade-side ${trade.side}">${trade.side.toUpperCase()}</span>
+                        </div>
+                        <div class="trade-details">
+                            <span>Entry: $${parseFloat(trade.entry_price).toFixed(6)}</span>
+                            <span>Size: ${parseFloat(trade.size).toFixed(4)}</span>
+                            <span>SL: $${parseFloat(trade.stop_loss).toFixed(6)}</span>
+                            <span>TP: $${parseFloat(trade.take_profit).toFixed(6)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Trades refresh error:', error);
+            }
+        }
+
+        async function refreshCandidates() {
+            try {
+                const response = await fetch('/api/candidates');
+                const data = await response.json();
+                const panel = document.getElementById('candidatesPanel');
+                
+                if (!data.candidates || data.candidates.length === 0) {
+                    panel.innerHTML = '<div class="empty-state">No candidates found</div>';
+                    return;
+                }
+                
+                panel.innerHTML = data.candidates.slice(0, 20).map((c, i) => `
+                    <div class="candidate-item">
+                        <div class="trade-header">
+                            <span class="trade-symbol">#${i+1} ${c.symbol}</span>
+                            <span class="candidate-stage">${c.stage}</span>
+                        </div>
+                        <div class="trade-details">
+                            <span>Score: <strong class="candidate-score">${parseFloat(c.prebreakout_score).toFixed(1)}</strong></span>
+                            <span>Price: $${parseFloat(c.price || 0).toFixed(6)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Candidates refresh error:', error);
+            }
+        }
+
+        updateStatus();
+        refreshTrades();
+        refreshCandidates();
+        
+        setInterval(updateStatus, 5000);
+        setInterval(refreshTrades, 15000);
+        setInterval(refreshCandidates, 30000);
+    </script>
+</body>
+</html>

@@ -12,6 +12,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+import pytz
+
+LA_TZ = pytz.timezone('America/Los_Angeles')
 
 from ..exchanges.kraken import KrakenExchange
 from ..exchanges.base import OrderSide, OrderType, OrderStatus, OHLCV
@@ -414,6 +417,24 @@ class ZeusBot:
                 logger.error(f"Order execution failed: {e}")
                 await self.telegram.send_error_alert("Order Failed", str(e))
                 return None
+        la_time = datetime.now(LA_TZ)
+        sell_order_id = None
+        if signal.side == OrderSide.BUY and self.mode == "LIVE":
+            try:
+                sell_order = await self.exchange.create_order(
+                    signal.symbol,
+                    OrderType.LIMIT,
+                    OrderSide.SELL,
+                    size,
+                    price=signal.take_profit
+                )
+                if sell_order:
+                    sell_order_id = sell_order.id
+                    logger.info(f"Immediate sell order placed: {sell_order_id} @ ${signal.take_profit:.8f} (TP)")
+                else:
+                    logger.warning(f"Failed to place immediate sell order for {signal.symbol}")
+            except Exception as e:
+                logger.warning(f"Could not place immediate sell order: {e}")
         trade = TradeRecord(
             id=trade_id,
             symbol=signal.symbol,
@@ -423,11 +444,13 @@ class ZeusBot:
             stop_loss=signal.stop_loss,
             take_profit=signal.take_profit,
             status="open",
-            entry_time=datetime.now(timezone.utc).isoformat(),
+            entry_time=la_time.isoformat(),
             strategy=signal.strategy_mode.value,
             confidence=signal.confidence,
             prebreakout_score=signal.prebreakout_score
         )
+        if sell_order_id:
+            trade.sell_order_id = sell_order_id
         await self.state.open_trade(trade)
         await self.telegram.send_trade_opened(
             signal.symbol,
@@ -437,7 +460,7 @@ class ZeusBot:
             signal.stop_loss,
             signal.take_profit
         )
-        logger.info(f"Trade opened: {signal.symbol} {signal.side.value} @ {signal.entry_price}")
+        logger.info(f"Trade opened: {signal.symbol} {signal.side.value} @ {signal.entry_price} ({la_time.strftime('%I:%M:%S %p PT')})")
         return trade_id
 
     async def manage_positions(self) -> None:
@@ -456,6 +479,29 @@ class ZeusBot:
                 if len(trade.price_history) > 60:
                     trade.price_history = trade.price_history[-60:]
                 
+                if trade.sell_order_id and self.mode == "LIVE":
+                    try:
+                        order_status = await self.exchange.fetch_order(trade.sell_order_id, trade.symbol)
+                        if order_status and order_status.status == OrderStatus.FILLED:
+                            logger.info(f"{trade.symbol} sell order filled at TP - closing position")
+                            await self._close_position(trade_id, trade.take_profit, "Take Profit Order Filled")
+                            continue
+                        new_tp = current_price * 1.035
+                        if new_tp > trade.take_profit * 1.02:
+                            await self.exchange.cancel_order(trade.sell_order_id, trade.symbol)
+                            sell_order = await self.exchange.create_order(
+                                trade.symbol,
+                                OrderType.LIMIT,
+                                OrderSide.SELL,
+                                trade.size,
+                                price=new_tp
+                            )
+                            if sell_order:
+                                trade.sell_order_id = sell_order.id
+                                trade.take_profit = new_tp
+                                logger.info(f"{trade.symbol} sell order adjusted higher: ${new_tp:.6f}")
+                    except Exception as e:
+                        logger.debug(f"Sell order check error: {e}")
                 if trade.side == "buy":
                     if trade.peak_price == 0:
                         trade.peak_price = trade.entry_price
