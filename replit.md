@@ -47,7 +47,7 @@ Zeus is a professional-grade autonomous cryptocurrency trading bot designed for 
 
 ### Core Trading Engine
 - **40+ Technical Indicators**: RSI, MACD, Bollinger Bands, ATR, VWAP, Ichimoku, Supertrend, Aroon, Vortex, Elder Ray, and many more
-- **23 KPI Pre-Breakout Scoring**: Comprehensive analysis with weighted multi-factor scoring
+- **30 KPI Pre-Breakout Scoring**: Comprehensive analysis with weighted multi-factor scoring (Williams %R, Stoch RSI, MFI, OBV Trend, Pivot Distance, Fibonacci Levels, Parabolic SAR + 23 original KPIs)
 - **Top-20 Priority Focus**: Identifies and tracks the best 20 candidates until exhausted
 - **Multi-Timeframe Analysis**: Confluence across 5m, 15m, 1h, 4h, 1d timeframes with 500 candles each
 
@@ -134,6 +134,8 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Expanded to 30 KPIs for pre-breakout detection (+7 new: Williams %R, Stoch RSI, MFI, OBV Trend, Pivot Distance, Fibonacci Levels, Parabolic SAR) (February 2026)
+- Manual order protection: Bot now NEVER auto-closes manually placed orders (February 2026)
 - FULL INTEGRATION: All 6 institutional modules now wired into runtime (February 2026)
   - Advanced Risk Engine: Kelly sizing + circuit breakers in execute_trade/scan_markets
   - Smart Execution: Strategy selection (TWAP/VWAP/market) based on liquidity/volatility
@@ -174,7 +176,7 @@ The bot runs automatically via the configured workflow. It will:
 - **Rate Limiter**: 15 public calls/sec, 8 private calls/sec
 - **Strategy**: Day trading with pre-breakout detection
 - **Loss Prevention**: Bot will NOT sell at a loss - waits for recovery
-- **Manual Order Protection**: Manually placed orders require 5%+ profit to auto-sell
+- **Manual Order Protection**: Bot will NEVER auto-close manually placed orders - full user control preserved
 - **AI/ML Learning**: Continuously learns from trade outcomes to improve decisions
 
 ## AI/ML Learning System

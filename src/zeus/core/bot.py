@@ -645,9 +645,8 @@ class ZeusBot:
             pnl_pct = -pnl_pct
         is_emergency_stop = "Emergency" in reason or "Stop Loss" in reason
         if trade.is_manual or trade.protected:
-            if pnl_pct < 5.0 and not is_emergency_stop:
-                logger.info(f"Protected trade {trade.symbol} - waiting for 5%+ profit (current: {pnl_pct:.2f}%)")
-                return
+            logger.info(f"Manual/protected trade {trade.symbol} - bot will not auto-close (current: {pnl_pct:.2f}%)")
+            return
         if pnl < 0 and not is_emergency_stop:
             entry_time = datetime.fromisoformat(trade.entry_time.replace('Z', '+00:00'))
             hold_time = (datetime.now(timezone.utc) - entry_time).total_seconds()
