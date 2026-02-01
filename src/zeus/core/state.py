@@ -37,6 +37,8 @@ class TradeRecord:
     strategy: str = "day_trade"
     confidence: float = 0.0
     prebreakout_score: float = 0.0
+    peak_price: float = 0.0
+    peak_count: int = 0
 
 
 @dataclass
