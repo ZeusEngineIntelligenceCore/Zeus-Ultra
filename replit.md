@@ -84,7 +84,7 @@ The bot runs automatically via the configured workflow. It will:
 - Initial implementation (January 2026)
 
 ## Trading Configuration
-- **Max Open Positions**: 20 trades
+- **Max Open Positions**: 100 trades
 - **Minimum Profit Target**: 3-4% before trailing stop activates
 - **Holdings Monitoring**: Automatically detects and tracks all owned tokens
 - **Scan Interval**: 30 seconds continuous market scanning
