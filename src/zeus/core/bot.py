@@ -166,7 +166,9 @@ class ZeusBot:
                         sell_order_id = await self._place_limit_sell(pair, amount, take_profit)
                         if sell_order_id:
                             trade.sell_order_id = sell_order_id
-                        await self.state.open_trade(trade)
+                            await self.state.open_trade(trade)
+                        else:
+                            logger.warning(f"Could not place sell order for {token}, skipping (tokens may be locked or staked)")
                 except Exception as e:
                     logger.debug(f"Could not sync {token}: {e}")
 
@@ -266,22 +268,70 @@ class ZeusBot:
         """Check all bot-managed positions and ensure they have sell orders on exchange"""
         if self.mode != "LIVE":
             return
+        holdings = self.state.state.holdings
+        logger.debug(f"Current holdings: {holdings}")
+        positions_to_remove = []
+        try:
+            all_open_orders = await self.exchange.fetch_open_orders()
+            logger.info(f"Fetched {len(all_open_orders)} open orders from Kraken")
+            for o in all_open_orders[:5]:
+                logger.debug(f"Order: {o.symbol} {o.side.value} {o.amount} @ {o.price}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch open orders: {e}")
+            all_open_orders = []
+        orders_by_symbol = {}
+        for order in all_open_orders:
+            if order.side.value == "sell" or str(order.side) == "OrderSide.SELL":
+                sym = order.symbol
+                if sym not in orders_by_symbol:
+                    orders_by_symbol[sym] = []
+                orders_by_symbol[sym].append(order)
+        if orders_by_symbol:
+            logger.info(f"Found existing sell orders for: {list(orders_by_symbol.keys())}")
         for trade_id, trade in list(self.state.state.active_trades.items()):
             if trade.protected or trade.is_manual:
                 continue
             if trade.symbol in ["USDCUSD", "USDTUSD"]:
                 continue
-            if not trade.sell_order_id:
+            token = trade.symbol.replace("USD", "")
+            token_balance = holdings.get(token, 0)
+            if token_balance < 0.00001:
+                logger.warning(f"Position {trade.symbol} has no tokens (balance: {token_balance:.8f}), marking for removal")
+                positions_to_remove.append(trade_id)
+                continue
+            if token_balance < trade.size * 0.5:
+                logger.info(f"Position {trade.symbol} balance {token_balance:.4f} < size {trade.size:.4f}, adjusting size")
+                trade.size = token_balance
+            existing_sell_orders = orders_by_symbol.get(trade.symbol, [])
+            if existing_sell_orders and not trade.sell_order_id:
+                trade.sell_order_id = existing_sell_orders[0].id
+                trade.take_profit = existing_sell_orders[0].price
+                logger.info(f"Synced existing sell order for {trade.symbol}: {trade.sell_order_id}")
+                await self.state.save_state()
+                continue
+            if not trade.sell_order_id and not existing_sell_orders:
                 logger.info(f"Position {trade.symbol} missing sell order, placing now...")
                 take_profit, _ = await self._calculate_intelligent_targets(
                     trade.symbol, trade.entry_price, trade.size
                 )
                 trade.take_profit = take_profit
-                sell_order_id = await self._place_limit_sell(trade.symbol, trade.size, take_profit)
+                sell_order_id = await self._place_limit_sell(trade.symbol, token_balance, take_profit)
                 if sell_order_id:
                     trade.sell_order_id = sell_order_id
+                    trade.size = token_balance
                     await self.state.save_state()
                     logger.info(f"Placed missing sell order for {trade.symbol}: {sell_order_id}")
+                else:
+                    trade.sell_order_attempts = getattr(trade, 'sell_order_attempts', 0) + 1
+                    if trade.sell_order_attempts >= 3:
+                        logger.warning(f"Position {trade.symbol} failed to place sell order 3 times, marking for removal (tokens may be locked)")
+                        positions_to_remove.append(trade_id)
+        for trade_id in positions_to_remove:
+            if trade_id in self.state.state.active_trades:
+                del self.state.state.active_trades[trade_id]
+                logger.info(f"Removed ghost position: {trade_id}")
+        if positions_to_remove:
+            await self.state.save_state()
 
     async def _refresh_pairs(self) -> None:
         try:
@@ -515,11 +565,23 @@ class ZeusBot:
         if self.mode == "LIVE":
             try:
                 order_book = await self.exchange.analyze_order_book(signal.symbol)
+                volatility_pct = signal.atr / signal.entry_price if signal.atr > 0 else 0.02
+                from ..execution.smart_execution import MarketConditions
+                market_conditions = MarketConditions(
+                    spread=order_book.get("spread", 0.01) if order_book else 0.01,
+                    spread_pct=order_book.get("spread_pct", 0.5) if order_book else 0.5,
+                    bid_depth=order_book.get("total_bid_volume", 1000) if order_book else 1000,
+                    ask_depth=order_book.get("total_ask_volume", 1000) if order_book else 1000,
+                    volatility=volatility_pct,
+                    volume_24h=order_book.get("volume_24h", 10000) if order_book else 10000,
+                    recent_volume=order_book.get("recent_volume", 1000) if order_book else 1000,
+                    liquidity_score=0.5
+                )
                 exec_strategy = self.smart_exec.select_strategy(
+                    order_size=size,
                     order_value=order_value,
-                    market_liquidity=order_book.get("total_bid_volume", 1000) if order_book else 1000,
-                    volatility=signal.atr / signal.entry_price if signal.atr > 0 else 0.02,
-                    urgency=signal.confidence
+                    market_conditions=market_conditions,
+                    urgency=signal.confidence / 100.0
                 )
                 logger.info(f"Smart execution strategy: {exec_strategy}")
                 optimal_price = signal.entry_price

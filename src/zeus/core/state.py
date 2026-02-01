@@ -108,6 +108,7 @@ class StateManager:
                         self.state.trade_history.append(TradeRecord(**trade_data))
                     for tid, trade_data in data.get("active_trades", {}).items():
                         self.state.active_trades[tid] = TradeRecord(**trade_data)
+                    self.state.holdings = data.get("holdings", {})
                 logger.info(f"Loaded state from {self.state_file}")
             except Exception as e:
                 logger.error(f"Failed to load state: {e}")
@@ -125,6 +126,7 @@ class StateManager:
                     "losses": self.state.losses,
                     "active_trades": {k: asdict(v) for k, v in self.state.active_trades.items()},
                     "trade_history": [asdict(t) for t in self.state.trade_history[-100:]],
+                    "holdings": self.state.holdings,
                     "last_updated": datetime.now(LA_TZ).isoformat()
                 }
                 with open(self.state_file, 'w') as f:
@@ -148,6 +150,7 @@ class StateManager:
     async def update_holdings(self, holdings: Dict[str, float]) -> None:
         async with self.lock:
             self.state.holdings = holdings
+        await self.save_state()
 
     async def add_candidate(self, candidate: Dict[str, Any]) -> None:
         async with self.lock:
