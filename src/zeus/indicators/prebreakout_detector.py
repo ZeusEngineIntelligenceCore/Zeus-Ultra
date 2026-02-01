@@ -154,7 +154,7 @@ class PreBreakoutDetector:
         last = rets[-1] if rets else 0.0
         med = sorted(vols)[len(vols) // 2] if vols else 1e-9
         vol_ratio = safe_mean(vols[-3:]) / (med or 1e-9)
-        vol_trend = safe_mean(vols[-5:]) / safe_mean(vols[-20:]) if len(vols) >= 20 else 1.0
+        vol_trend = safe_mean(vols[-5:]) / (safe_mean(vols[-20:]) or 1e-9) if len(vols) >= 20 else 1.0
         price_momentum = safe_mean(rets[-3:]) if len(rets) >= 3 else last
         base_pressure = abs(last) * vol_ratio
         trend_factor = clip01(vol_trend / 2.0)
