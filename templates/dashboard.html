@@ -13,35 +13,46 @@
             min-height: 100vh;
         }
         .header {
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.4);
             padding: 1rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid rgba(255,255,255,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
         }
-        .logo { font-size: 1.5rem; font-weight: bold; color: #4299e1; }
+        .logo { 
+            font-size: 1.5rem; 
+            font-weight: bold; 
+            background: linear-gradient(135deg, #4299e1, #9f7aea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .logo-icon { font-size: 2rem; }
         .user-info { display: flex; align-items: center; gap: 1rem; }
         .user-avatar { width: 36px; height: 36px; border-radius: 50%; border: 2px solid #4299e1; }
         .time-display { color: #a0aec0; font-size: 0.875rem; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+        .container { max-width: 1600px; margin: 0 auto; padding: 1.5rem; }
+        
         .toggle-section {
-            background: linear-gradient(135deg, rgba(66,153,225,0.2), rgba(159,122,234,0.2));
+            background: linear-gradient(135deg, rgba(66,153,225,0.15), rgba(159,122,234,0.15));
             border-radius: 1rem;
-            padding: 2rem;
+            padding: 1.5rem 2rem;
             margin-bottom: 1.5rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
             border: 1px solid rgba(255,255,255,0.1);
         }
-        .toggle-info h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-        .toggle-info p { color: #a0aec0; }
-        .toggle-switch {
-            position: relative;
-            width: 80px;
-            height: 40px;
-        }
+        .toggle-info h2 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+        .toggle-info p { color: #a0aec0; font-size: 0.875rem; }
+        .toggle-switch { position: relative; width: 70px; height: 35px; }
         .toggle-switch input { opacity: 0; width: 0; height: 0; }
         .slider {
             position: absolute;
@@ -49,88 +60,137 @@
             top: 0; left: 0; right: 0; bottom: 0;
             background-color: #4a5568;
             transition: 0.4s;
-            border-radius: 40px;
+            border-radius: 35px;
         }
         .slider:before {
             position: absolute;
             content: "";
-            height: 32px;
-            width: 32px;
+            height: 27px;
+            width: 27px;
             left: 4px;
             bottom: 4px;
             background-color: white;
             transition: 0.4s;
             border-radius: 50%;
         }
-        input:checked + .slider { background-color: #48bb78; }
-        input:checked + .slider:before { transform: translateX(40px); }
+        input:checked + .slider { background: linear-gradient(135deg, #48bb78, #38a169); }
+        input:checked + .slider:before { transform: translateX(35px); }
+        
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(6, 1fr);
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
+        @media (max-width: 1200px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 600px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+        
         .stat-card {
             background: rgba(255,255,255,0.05);
             border-radius: 0.75rem;
-            padding: 1.25rem;
+            padding: 1rem;
             border: 1px solid rgba(255,255,255,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
         }
-        .stat-label { color: #a0aec0; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
-        .stat-value { font-size: 1.75rem; font-weight: bold; margin-top: 0.5rem; }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+        }
+        .stat-label { color: #a0aec0; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { font-size: 1.5rem; font-weight: bold; margin-top: 0.25rem; }
         .stat-value.green { color: #48bb78; }
         .stat-value.blue { color: #4299e1; }
         .stat-value.yellow { color: #ecc94b; }
         .stat-value.purple { color: #9f7aea; }
+        .stat-value.red { color: #f56565; }
+        .stat-value.cyan { color: #38b2ac; }
+        .stat-sub { font-size: 0.75rem; color: #718096; margin-top: 0.25rem; }
+        
         .main-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 1.5rem;
+            margin-bottom: 1.5rem;
         }
-        @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 1200px) { .main-grid { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 800px) { .main-grid { grid-template-columns: 1fr; } }
+        
         .panel {
             background: rgba(255,255,255,0.05);
             border-radius: 1rem;
             border: 1px solid rgba(255,255,255,0.1);
             overflow: hidden;
         }
+        .panel.full-width { grid-column: 1 / -1; }
         .panel-header {
-            background: rgba(0,0,0,0.2);
-            padding: 1rem 1.25rem;
+            background: rgba(0,0,0,0.3);
+            padding: 0.875rem 1.25rem;
             font-weight: 600;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            font-size: 0.9rem;
         }
-        .panel-body { padding: 1rem; max-height: 400px; overflow-y: auto; }
-        .trade-item, .candidate-item {
-            background: rgba(0,0,0,0.2);
+        .panel-body { padding: 1rem; max-height: 350px; overflow-y: auto; }
+        .panel-body::-webkit-scrollbar { width: 6px; }
+        .panel-body::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .panel-body::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 3px; }
+        
+        .trade-item, .candidate-item, .holding-item {
+            background: rgba(0,0,0,0.25);
             border-radius: 0.5rem;
-            padding: 1rem;
-            margin-bottom: 0.75rem;
+            padding: 0.875rem;
+            margin-bottom: 0.625rem;
             border-left: 3px solid #4299e1;
+            transition: background 0.2s;
+        }
+        .trade-item:hover, .candidate-item:hover, .holding-item:hover {
+            background: rgba(0,0,0,0.4);
         }
         .trade-item.sell { border-left-color: #f56565; }
-        .trade-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
-        .trade-symbol { font-weight: 600; font-size: 1rem; }
-        .trade-side { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; }
-        .trade-side.buy { background: #2f855a; }
-        .trade-side.sell { background: #c53030; }
-        .trade-details { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.875rem; color: #a0aec0; }
+        .trade-item.manual { border-left-color: #ecc94b; opacity: 0.7; }
+        .trade-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+        .trade-symbol { font-weight: 600; font-size: 0.95rem; }
+        .trade-side { font-size: 0.7rem; padding: 0.2rem 0.5rem; border-radius: 0.25rem; font-weight: 600; }
+        .trade-side.buy { background: #276749; }
+        .trade-side.sell { background: #9b2c2c; }
+        .trade-side.manual { background: #744210; }
+        .trade-details { display: grid; grid-template-columns: 1fr 1fr; gap: 0.375rem; font-size: 0.8rem; color: #a0aec0; }
+        .trade-pnl { font-weight: 600; }
+        .trade-pnl.positive { color: #48bb78; }
+        .trade-pnl.negative { color: #f56565; }
+        
         .candidate-item { border-left-color: #9f7aea; }
-        .candidate-score { font-size: 1.25rem; font-weight: bold; color: #48bb78; }
-        .candidate-stage { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.25rem; background: #553c9a; }
-        .empty-state { text-align: center; padding: 2rem; color: #718096; }
-        .refresh-btn {
-            background: #4299e1;
-            border: none;
-            padding: 0.5rem 1rem;
-            border-radius: 0.5rem;
-            color: white;
-            cursor: pointer;
-            font-size: 0.875rem;
+        .candidate-score { font-size: 1.1rem; font-weight: bold; color: #48bb78; }
+        .candidate-stage { 
+            font-size: 0.65rem; 
+            padding: 0.2rem 0.5rem; 
+            border-radius: 0.25rem; 
+            background: #553c9a;
+            font-weight: 600;
         }
-        .refresh-btn:hover { background: #3182ce; }
+        .candidate-stage.breakout { background: #276749; }
+        .candidate-stage.pre-breakout { background: #744210; }
+        
+        .holding-item { border-left-color: #38b2ac; }
+        .holding-value { font-weight: 600; color: #38b2ac; }
+        .holding-pnl.positive { color: #48bb78; }
+        .holding-pnl.negative { color: #f56565; }
+        
+        .empty-state { text-align: center; padding: 2rem; color: #718096; font-size: 0.875rem; }
+        
+        .refresh-btn {
+            background: rgba(66,153,225,0.2);
+            border: 1px solid rgba(66,153,225,0.3);
+            padding: 0.375rem 0.75rem;
+            border-radius: 0.375rem;
+            color: #4299e1;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+        }
+        .refresh-btn:hover { background: rgba(66,153,225,0.3); }
+        
         .status-dot {
             width: 10px;
             height: 10px;
@@ -139,24 +199,71 @@
             margin-right: 0.5rem;
             animation: pulse 2s infinite;
         }
-        .status-dot.running { background: #48bb78; }
+        .status-dot.running { background: #48bb78; box-shadow: 0 0 10px #48bb78; }
         .status-dot.stopped { background: #f56565; }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            50% { opacity: 0.6; }
         }
+        
+        .fear-greed-meter {
+            background: linear-gradient(90deg, #f56565 0%, #ecc94b 50%, #48bb78 100%);
+            height: 8px;
+            border-radius: 4px;
+            margin-top: 0.5rem;
+            position: relative;
+        }
+        .fear-greed-indicator {
+            position: absolute;
+            top: -4px;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            transform: translateX(-50%);
+        }
+        
+        .kpi-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            background: rgba(159,122,234,0.2);
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.7rem;
+            color: #9f7aea;
+        }
+        
+        .sentiment-bar {
+            display: flex;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+        .sentiment-bar .bullish { background: #48bb78; }
+        .sentiment-bar .bearish { background: #f56565; }
+        
+        .bottom-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+        }
+        @media (max-width: 900px) { .bottom-grid { grid-template-columns: 1fr; } }
+        
         .log-output {
             background: #0d1117;
             border-radius: 0.5rem;
             padding: 1rem;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 0.8rem;
-            line-height: 1.5;
-            max-height: 300px;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 0.75rem;
+            line-height: 1.6;
+            max-height: 250px;
             overflow-y: auto;
             color: #8b949e;
         }
-        .log-line { margin-bottom: 0.25rem; }
+        .log-line { margin-bottom: 0.125rem; }
         .log-time { color: #58a6ff; }
         .log-info { color: #3fb950; }
         .log-warn { color: #d29922; }
@@ -165,14 +272,18 @@
 </head>
 <body>
     <header class="header">
-        <div class="logo">Zeus Trading Dashboard</div>
+        <div class="logo">
+            <span class="logo-icon">&#9889;</span>
+            Zeus Trading Dashboard
+        </div>
         <div class="user-info">
+            <span class="kpi-badge">30 KPIs Active</span>
             <span class="time-display" id="currentTime">{{ current_time }}</span>
             {% if user.profile_image_url %}
                 <img src="{{ user.profile_image_url }}" alt="Profile" class="user-avatar">
             {% endif %}
             <span>{{ user.first_name or user.email or 'Trader' }}</span>
-            <a href="/" style="color: #4299e1; text-decoration: none;">Home</a>
+            <a href="/" style="color: #4299e1; text-decoration: none; font-size: 0.875rem;">Home</a>
         </div>
     </header>
 
@@ -181,40 +292,73 @@
             <div class="toggle-info">
                 <h2>
                     <span class="status-dot {{ 'running' if bot_status.running else 'stopped' }}" id="statusDot"></span>
-                    Bot Status: <span id="botStatusText">{{ 'Running' if bot_status.running else 'Stopped' }}</span>
+                    Bot: <span id="botStatusText">{{ 'Running' if bot_status.running else 'Stopped' }}</span>
                 </h2>
                 <p>Mode: <strong id="tradingMode">{{ bot_status.mode }}</strong> | 
-                   Started: <span id="uptimeStart">{{ bot_status.uptime_start or 'N/A' }}</span></p>
+                   Since: <span id="uptimeStart">{{ bot_status.uptime_start or 'N/A' }}</span></p>
             </div>
-            <label class="toggle-switch">
-                <input type="checkbox" id="botToggle" {{ 'checked' if bot_status.running else '' }}>
-                <span class="slider"></span>
-            </label>
+            <div style="display: flex; align-items: center; gap: 1.5rem;">
+                <div style="text-align: right;">
+                    <div style="font-size: 0.7rem; color: #a0aec0; text-transform: uppercase;">Fear & Greed</div>
+                    <div id="fearGreedValue" style="font-size: 1.25rem; font-weight: bold; color: #f56565;">--</div>
+                    <div class="fear-greed-meter">
+                        <div class="fear-greed-indicator" id="fearGreedIndicator" style="left: 14%;"></div>
+                    </div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="botToggle" {{ 'checked' if bot_status.running else '' }}>
+                    <span class="slider"></span>
+                </label>
+            </div>
         </div>
 
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-label">Balance</div>
-                <div class="stat-value blue" id="balance">$<span>{{ "%.2f"|format(bot_status.balance) }}</span></div>
+                <div class="stat-label">Available Balance</div>
+                <div class="stat-value blue" id="balance">${{ "%.2f"|format(bot_status.balance) }}</div>
+                <div class="stat-sub">USD available</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Active Trades</div>
+                <div class="stat-label">Portfolio Value</div>
+                <div class="stat-value cyan" id="portfolioValue">$--</div>
+                <div class="stat-sub" id="holdingsCount">-- holdings</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Bot Trades</div>
                 <div class="stat-value green" id="activeTrades">{{ bot_status.active_trades }}</div>
+                <div class="stat-sub">managed positions</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Top Candidates</div>
                 <div class="stat-value purple" id="candidates">{{ bot_status.candidates_count }}</div>
+                <div class="stat-sub">pre-breakout signals</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Total Profit</div>
-                <div class="stat-value yellow" id="totalProfit">${{ "%.2f"|format(bot_status.total_profit) }}</div>
+                <div class="stat-label">Win Rate</div>
+                <div class="stat-value green" id="winRate">{{ "%.1f"|format(bot_status.win_rate or 0) }}%</div>
+                <div class="stat-sub" id="winLoss">{{ bot_status.wins or 0 }}W / {{ bot_status.losses or 0 }}L</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total P&L</div>
+                <div class="stat-value {{ 'green' if (bot_status.total_profit or 0) >= 0 else 'red' }}" id="totalProfit">${{ "%.2f"|format(bot_status.total_profit or 0) }}</div>
+                <div class="stat-sub">lifetime</div>
             </div>
         </div>
 
         <div class="main-grid">
             <div class="panel">
                 <div class="panel-header">
-                    <span>Active Trades</span>
+                    <span>Portfolio Holdings</span>
+                    <button class="refresh-btn" onclick="refreshHoldings()">Refresh</button>
+                </div>
+                <div class="panel-body" id="holdingsPanel">
+                    <div class="empty-state">Loading holdings...</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Bot-Managed Trades</span>
                     <button class="refresh-btn" onclick="refreshTrades()">Refresh</button>
                 </div>
                 <div class="panel-body" id="tradesPanel">
@@ -229,6 +373,58 @@
                 </div>
                 <div class="panel-body" id="candidatesPanel">
                     <div class="empty-state">Loading candidates...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bottom-grid">
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Recent Activity Log</span>
+                    <span style="font-size: 0.75rem; color: #718096;">Auto-refreshing</span>
+                </div>
+                <div class="panel-body">
+                    <div class="log-output" id="logOutput">
+                        <div class="log-line"><span class="log-time">[--:--:--]</span> Waiting for logs...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Market Analysis</span>
+                </div>
+                <div class="panel-body">
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Market Sentiment</div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.25rem;">
+                            <span style="color: #48bb78;">Bullish: <span id="bullishPct">--</span>%</span>
+                            <span style="color: #f56565;">Bearish: <span id="bearishPct">--</span>%</span>
+                        </div>
+                        <div class="sentiment-bar">
+                            <div class="bullish" id="bullishBar" style="width: 50%;"></div>
+                            <div class="bearish" id="bearishBar" style="width: 50%;"></div>
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Active Indicators</div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.375rem;">
+                            <span class="kpi-badge">RSI</span>
+                            <span class="kpi-badge">MACD</span>
+                            <span class="kpi-badge">Bollinger</span>
+                            <span class="kpi-badge">ATR</span>
+                            <span class="kpi-badge">Supertrend</span>
+                            <span class="kpi-badge">VWAP</span>
+                            <span class="kpi-badge">OBV</span>
+                            <span class="kpi-badge">MFI</span>
+                            <span class="kpi-badge">+22 more</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Pairs Monitored</div>
+                        <div style="font-size: 1.5rem; font-weight: bold; color: #4299e1;" id="pairsCount">616</div>
+                        <div style="font-size: 0.75rem; color: #718096;">USD trading pairs</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -263,9 +459,62 @@
                 document.getElementById('candidates').textContent = data.candidates_count || 0;
                 document.getElementById('totalProfit').textContent = '$' + parseFloat(data.total_profit || 0).toFixed(2);
                 
+                const winRate = data.wins && (data.wins + data.losses) > 0 
+                    ? (data.wins / (data.wins + data.losses) * 100).toFixed(1) 
+                    : '0.0';
+                document.getElementById('winRate').textContent = winRate + '%';
+                document.getElementById('winLoss').textContent = (data.wins || 0) + 'W / ' + (data.losses || 0) + 'L';
+                
+                if (data.fear_greed) {
+                    const fg = data.fear_greed;
+                    document.getElementById('fearGreedValue').textContent = fg.value + ' - ' + fg.classification;
+                    document.getElementById('fearGreedIndicator').style.left = fg.value + '%';
+                    const fgColor = fg.value < 25 ? '#f56565' : fg.value < 50 ? '#ecc94b' : '#48bb78';
+                    document.getElementById('fearGreedValue').style.color = fgColor;
+                }
+                
                 botToggle.checked = data.running;
             } catch (error) {
                 console.error('Status update error:', error);
+            }
+        }
+
+        async function refreshHoldings() {
+            try {
+                const response = await fetch('/api/holdings');
+                const data = await response.json();
+                const panel = document.getElementById('holdingsPanel');
+                
+                if (!data.holdings || data.holdings.length === 0) {
+                    panel.innerHTML = '<div class="empty-state">No holdings found</div>';
+                    document.getElementById('portfolioValue').textContent = '$0.00';
+                    document.getElementById('holdingsCount').textContent = '0 holdings';
+                    return;
+                }
+                
+                let totalValue = 0;
+                panel.innerHTML = data.holdings.map(h => {
+                    totalValue += h.value_usd || 0;
+                    const pnlClass = (h.pnl_pct || 0) >= 0 ? 'positive' : 'negative';
+                    const pnlSign = (h.pnl_pct || 0) >= 0 ? '+' : '';
+                    return `
+                        <div class="holding-item">
+                            <div class="trade-header">
+                                <span class="trade-symbol">${h.symbol}</span>
+                                <span class="holding-value">$${parseFloat(h.value_usd || 0).toFixed(2)}</span>
+                            </div>
+                            <div class="trade-details">
+                                <span>Amount: ${parseFloat(h.amount || 0).toFixed(4)}</span>
+                                <span class="holding-pnl ${pnlClass}">${pnlSign}${parseFloat(h.pnl_pct || 0).toFixed(2)}%</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                document.getElementById('portfolioValue').textContent = '$' + totalValue.toFixed(2);
+                document.getElementById('holdingsCount').textContent = data.holdings.length + ' holdings';
+            } catch (error) {
+                console.error('Holdings refresh error:', error);
             }
         }
 
@@ -276,24 +525,29 @@
                 const panel = document.getElementById('tradesPanel');
                 
                 if (!data.trades || data.trades.length === 0) {
-                    panel.innerHTML = '<div class="empty-state">No active trades</div>';
+                    panel.innerHTML = '<div class="empty-state">No bot-managed trades</div>';
                     return;
                 }
                 
-                panel.innerHTML = data.trades.map(trade => `
-                    <div class="trade-item ${trade.side}">
-                        <div class="trade-header">
-                            <span class="trade-symbol">${trade.symbol}</span>
-                            <span class="trade-side ${trade.side}">${trade.side.toUpperCase()}</span>
+                panel.innerHTML = data.trades.map(trade => {
+                    const isManual = trade.is_manual || trade.protected;
+                    const sideClass = isManual ? 'manual' : trade.side;
+                    const sideLabel = isManual ? 'MANUAL' : trade.side.toUpperCase();
+                    return `
+                        <div class="trade-item ${sideClass}">
+                            <div class="trade-header">
+                                <span class="trade-symbol">${trade.symbol}</span>
+                                <span class="trade-side ${sideClass}">${sideLabel}</span>
+                            </div>
+                            <div class="trade-details">
+                                <span>Entry: $${parseFloat(trade.entry_price).toFixed(6)}</span>
+                                <span>Size: ${parseFloat(trade.size).toFixed(4)}</span>
+                                <span>SL: $${parseFloat(trade.stop_loss).toFixed(6)}</span>
+                                <span>TP: $${parseFloat(trade.take_profit).toFixed(6)}</span>
+                            </div>
                         </div>
-                        <div class="trade-details">
-                            <span>Entry: $${parseFloat(trade.entry_price).toFixed(6)}</span>
-                            <span>Size: ${parseFloat(trade.size).toFixed(4)}</span>
-                            <span>SL: $${parseFloat(trade.stop_loss).toFixed(6)}</span>
-                            <span>TP: $${parseFloat(trade.take_profit).toFixed(6)}</span>
-                        </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             } catch (error) {
                 console.error('Trades refresh error:', error);
             }
@@ -306,34 +560,73 @@
                 const panel = document.getElementById('candidatesPanel');
                 
                 if (!data.candidates || data.candidates.length === 0) {
-                    panel.innerHTML = '<div class="empty-state">No candidates found</div>';
+                    panel.innerHTML = '<div class="empty-state">Scanning for candidates...</div>';
                     return;
                 }
                 
-                panel.innerHTML = data.candidates.slice(0, 20).map((c, i) => `
-                    <div class="candidate-item">
-                        <div class="trade-header">
-                            <span class="trade-symbol">#${i+1} ${c.symbol}</span>
-                            <span class="candidate-stage">${c.stage}</span>
+                let bullish = 0, bearish = 0;
+                panel.innerHTML = data.candidates.slice(0, 20).map((c, i) => {
+                    const stage = c.stage || 'ANALYZING';
+                    const stageClass = stage === 'BREAKOUT' ? 'breakout' : stage === 'PRE_BREAKOUT' ? 'pre-breakout' : '';
+                    if (c.prebreakout_score > 60) bullish++;
+                    else bearish++;
+                    return `
+                        <div class="candidate-item">
+                            <div class="trade-header">
+                                <span class="trade-symbol">#${i+1} ${c.symbol}</span>
+                                <span class="candidate-stage ${stageClass}">${stage}</span>
+                            </div>
+                            <div class="trade-details">
+                                <span>Score: <strong class="candidate-score">${parseFloat(c.prebreakout_score).toFixed(1)}</strong></span>
+                                <span>Price: $${parseFloat(c.price || c.current_price || 0).toFixed(6)}</span>
+                            </div>
                         </div>
-                        <div class="trade-details">
-                            <span>Score: <strong class="candidate-score">${parseFloat(c.prebreakout_score).toFixed(1)}</strong></span>
-                            <span>Price: $${parseFloat(c.price || 0).toFixed(6)}</span>
-                        </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
+                
+                const total = bullish + bearish || 1;
+                const bullishPct = Math.round(bullish / total * 100);
+                const bearishPct = 100 - bullishPct;
+                document.getElementById('bullishPct').textContent = bullishPct;
+                document.getElementById('bearishPct').textContent = bearishPct;
+                document.getElementById('bullishBar').style.width = bullishPct + '%';
+                document.getElementById('bearishBar').style.width = bearishPct + '%';
             } catch (error) {
                 console.error('Candidates refresh error:', error);
             }
         }
 
+        async function refreshLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+                const logOutput = document.getElementById('logOutput');
+                
+                if (data.logs && data.logs.length > 0) {
+                    logOutput.innerHTML = data.logs.slice(-20).map(log => {
+                        const levelClass = log.includes('ERROR') ? 'log-error' : 
+                                          log.includes('WARNING') ? 'log-warn' : 
+                                          log.includes('INFO') ? 'log-info' : '';
+                        return `<div class="log-line ${levelClass}">${log}</div>`;
+                    }).join('');
+                    logOutput.scrollTop = logOutput.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Logs refresh error:', error);
+            }
+        }
+
         updateStatus();
+        refreshHoldings();
         refreshTrades();
         refreshCandidates();
+        refreshLogs();
         
         setInterval(updateStatus, 5000);
+        setInterval(refreshHoldings, 30000);
         setInterval(refreshTrades, 15000);
         setInterval(refreshCandidates, 30000);
+        setInterval(refreshLogs, 10000);
     </script>
 </body>
 </html>

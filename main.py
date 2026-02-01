@@ -75,6 +75,15 @@ def status():
                 status_copy["candidates_count"] = len(state.get("candidates", []))
                 status_copy["total_profit"] = state.get("total_profit", 0)
                 status_copy["cycle_count"] = state.get("cycle_count", 0)
+                status_copy["wins"] = state.get("wins", 0)
+                status_copy["losses"] = state.get("losses", 0)
+                if hasattr(bot_instance, 'alt_data') and bot_instance.alt_data:
+                    fg = bot_instance.alt_data.get_fear_greed()
+                    if fg:
+                        status_copy["fear_greed"] = {
+                            "value": fg.value,
+                            "classification": fg.classification
+                        }
             except Exception:
                 pass
     return jsonify(status_copy), 200
@@ -98,11 +107,57 @@ def api_trades():
                 "stop_loss": trade.get("stop_loss"),
                 "take_profit": trade.get("take_profit"),
                 "entry_time": trade.get("entry_time"),
-                "status": trade.get("status")
+                "status": trade.get("status"),
+                "is_manual": trade.get("is_manual", False),
+                "protected": trade.get("protected", False)
             })
         return jsonify({"trades": trades, "count": len(trades)}), 200
     except Exception as e:
         return jsonify({"trades": [], "error": str(e)}), 200
+
+
+@app.route("/api/holdings")
+@require_login
+def api_holdings():
+    if not bot_instance:
+        return jsonify({"holdings": [], "error": "Bot not running"}), 200
+    try:
+        state = bot_instance.get_status()
+        holdings_data = state.get("holdings", {})
+        holdings = []
+        for symbol, amount in holdings_data.items():
+            if symbol in ["USD", "ZUSD", "EUR", "ZEUR"] or amount < 0.0001:
+                continue
+            holdings.append({
+                "symbol": symbol,
+                "amount": amount,
+                "value_usd": 0,
+                "pnl_pct": 0
+            })
+        holdings.sort(key=lambda x: x["amount"], reverse=True)
+        return jsonify({"holdings": holdings[:20], "count": len(holdings)}), 200
+    except Exception as e:
+        return jsonify({"holdings": [], "error": str(e)}), 200
+
+
+recent_logs = []
+
+@app.route("/api/logs")
+@require_login
+def api_logs():
+    global recent_logs
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["tail", "-50", "logs/zeus.log"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.stdout:
+            lines = result.stdout.strip().split('\n')
+            recent_logs = [l[:150] for l in lines[-30:]]
+    except Exception:
+        pass
+    return jsonify({"logs": recent_logs}), 200
 
 
 @app.route("/api/candidates")
