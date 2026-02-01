@@ -217,6 +217,28 @@ class TelegramLearningEngine:
             "preferred_hours": self.state.preferred_hours
         }
 
+    def get_daily_insights(self) -> Dict[str, Any]:
+        patterns = self.state.successful_trade_patterns
+        recent_patterns = patterns[-20:] if len(patterns) >= 20 else patterns
+        total_pnl = sum(p.get("pnl_pct", 0) for p in recent_patterns)
+        avg_pnl = total_pnl / len(recent_patterns) if recent_patterns else 0
+        win_count = sum(1 for p in recent_patterns if p.get("pnl_pct", 0) > 0)
+        win_rate = (win_count / len(recent_patterns) * 100) if recent_patterns else 0
+        top_symbols = sorted(
+            self.state.preferred_symbols.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:5]
+        return {
+            "recent_trades": len(recent_patterns),
+            "avg_pnl_pct": avg_pnl,
+            "win_rate": win_rate,
+            "top_symbols": dict(top_symbols),
+            "alerts_sent_today": self.state.total_alerts_sent,
+            "confidence_threshold": self.state.learned_confidence_threshold,
+            "best_strategies": self.state.best_performing_strategies[:3]
+        }
+
 
 @dataclass
 class AlertConfig:
@@ -690,20 +712,23 @@ class TelegramAlerts:
             return "⚠️ Bot reference not available"
         try:
             bot = self._bot_ref
-            state = bot.state
-            positions = state.open_positions
-            if not positions:
+            state_mgr = bot.state
+            active_trades = state_mgr.state.active_trades if hasattr(state_mgr, 'state') else {}
+            if not active_trades:
                 return "📈 <b>Active Trades</b>\n\nNo open positions."
             lines = ["📈 <b>ACTIVE TRADES</b>\n"]
-            for symbol, pos in list(positions.items())[:10]:
-                entry = pos.get('entry_price', 0)
-                current = pos.get('current_price', entry)
+            for trade_id, trade in list(active_trades.items())[:10]:
+                symbol = trade.symbol if hasattr(trade, 'symbol') else trade_id
+                entry = trade.entry_price if hasattr(trade, 'entry_price') else 0
+                current = trade.peak_price if hasattr(trade, 'peak_price') and trade.peak_price > 0 else entry
                 pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
-                emoji = "🟢" if pnl_pct >= 0 else "🔴"
-                lines.append(f"{emoji} <b>{symbol}:</b> {pnl_pct:+.2f}% @ ${entry:.6f}")
-            if len(positions) > 10:
-                lines.append(f"\n... and {len(positions) - 10} more")
-            lines.append(f"\n<b>Total Open:</b> {len(positions)} positions")
+                side = trade.side if hasattr(trade, 'side') else 'buy'
+                side_emoji = "🟢" if side == 'buy' else "🔴"
+                pnl_emoji = "📈" if pnl_pct >= 0 else "📉"
+                lines.append(f"{side_emoji} <b>{symbol}:</b> {pnl_emoji} {pnl_pct:+.2f}% @ ${entry:.6f}")
+            if len(active_trades) > 10:
+                lines.append(f"\n... and {len(active_trades) - 10} more")
+            lines.append(f"\n<b>Total Open:</b> {len(active_trades)} positions")
             lines.append(f"\n⏰ {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
             return "\n".join(lines)
         except Exception as e:
@@ -891,15 +916,26 @@ Use the buttons below or type commands to interact with me.
             await update.message.reply_text("⚠️ Bot reference not available")
             return
         try:
+            state_mgr = self._bot_ref.state
+            bot_state = state_mgr.state if hasattr(state_mgr, 'state') else state_mgr
+            equity = self._bot_ref.exchange.cached_balance if hasattr(self._bot_ref.exchange, 'cached_balance') else 0.0
+            if not isinstance(equity, (int, float)):
+                equity = 0.0
+            daily_pnl = bot_state.daily_pnl if hasattr(bot_state, 'daily_pnl') else 0.0
+            active_trades = bot_state.active_trades if hasattr(bot_state, 'active_trades') else {}
+            trades_today = len(active_trades)
+            wins = bot_state.wins if hasattr(bot_state, 'wins') else 0
+            losses = bot_state.losses if hasattr(bot_state, 'losses') else 0
             await self.send_daily_summary(
-                self._bot_ref.state.closed_trades_today if hasattr(self._bot_ref.state, 'closed_trades_today') else 0,
-                self._bot_ref.state.daily_pnl if hasattr(self._bot_ref.state, 'daily_pnl') else 0.0,
-                len(self._bot_ref.state.open_positions),
-                100,
-                await self.learning_engine.get_daily_insights() if hasattr(self.learning_engine, 'get_daily_insights') else {}
+                equity=equity,
+                daily_pnl=daily_pnl,
+                trades_today=trades_today,
+                wins=wins,
+                losses=losses
             )
             await update.message.reply_text("📊 Report sent!", reply_markup=self.get_main_keyboard())
         except Exception as e:
+            logger.error(f"Report command error: {e}")
             await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}")
 
     async def start_command_listener(self) -> None:
@@ -907,7 +943,14 @@ Use the buttons below or type commands to interact with me.
             return
         try:
             await self.stop_command_listener()
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
+            if self.bot:
+                try:
+                    await self.bot.delete_webhook(drop_pending_updates=True)
+                    logger.info("Deleted any existing webhook before starting polling")
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.warning(f"Could not delete webhook: {e}")
             self.app = Application.builder().token(self.token).build()
             self.app.add_handler(CommandHandler("start", self.cmd_start))
             self.app.add_handler(CommandHandler("status", self.cmd_status))
@@ -923,12 +966,18 @@ Use the buttons below or type commands to interact with me.
             logger.info("Telegram command handlers registered")
             await self.app.initialize()
             await self.app.start()
-            await self.app.updater.start_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
-            logger.info("Telegram command listener started")
+            await self.app.updater.start_polling(
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"]
+            )
+            logger.info("Telegram command listener started successfully")
         except Exception as e:
-            if "Conflict" in str(e):
-                logger.warning("Telegram polling conflict detected - another instance running. Disabling polling for this instance.")
+            error_str = str(e)
+            if "Conflict" in error_str:
+                logger.warning("Telegram polling conflict - another instance may be running. Bot will operate in send-only mode.")
                 self._commands_registered = True
+            elif "Unauthorized" in error_str:
+                logger.error("Telegram bot token is invalid")
             else:
                 logger.error(f"Failed to start command listener: {e}")
 
@@ -976,15 +1025,14 @@ Use the buttons below or type commands to interact with me.
             now = datetime.now(la_tz)
             report_type = "WEEKLY" if is_weekly else "DAILY"
             lines = [f"📊 <b>ZEUS {report_type} REPORT</b>", f"📅 {now.strftime('%A, %B %d, %Y')}\n"]
-            open_positions = len(state.open_positions)
-            holdings_count = len(state.holdings) if hasattr(state, 'holdings') else 0
+            open_positions = len(state.state.active_trades) if hasattr(state, 'state') else 0
+            holdings_count = len(state.state.holdings) if hasattr(state, 'state') and hasattr(state.state, 'holdings') else 0
             balance = bot.exchange.cached_balance if hasattr(bot.exchange, 'cached_balance') else None
             balance_str = f"${balance:.2f}" if isinstance(balance, (int, float)) else "N/A"
             lines.append(f"<b>Account Status:</b>")
             lines.append(f"• Balance: {balance_str}")
             lines.append(f"• Open Positions: {open_positions}")
-            lines.append(f"• Holdings: {holdings_count} tokens")
-            lines.append(f"• Trading Cycle: {state.trading_cycle}\n")
+            lines.append(f"• Holdings: {holdings_count} tokens\n")
             ml = bot.ml_engine if hasattr(bot, 'ml_engine') else None
             if ml and hasattr(ml, 'state'):
                 ml_state = ml.state
