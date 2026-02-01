@@ -65,6 +65,11 @@ class ZeusBot:
         self._last_full_scan = 0
         self._last_position_scan = 0
         self._all_timeframes = ["5m", "15m", "1h", "4h", "1d"]
+        self._priority_candidates: List[Dict[str, Any]] = []
+        self._priority_focus_size = 20
+        self._priority_last_refresh = 0
+        self._priority_refresh_interval = 900
+        self._last_priority_scan = 0
 
     async def start(self) -> bool:
         logger.info(f"Starting Zeus Bot in {self.mode} mode...")
@@ -217,10 +222,15 @@ class ZeusBot:
         results = await asyncio.gather(*[analyze_pair(p) for p in self._pairs_cache])
         candidates = [r for r in results if r is not None]
         candidates.sort(key=lambda x: x["prebreakout_score"], reverse=True)
+        self._priority_candidates = candidates[:self._priority_focus_size]
+        self._priority_last_refresh = time.time()
+        logger.info(f"Top-{self._priority_focus_size} priority candidates identified:")
+        for i, c in enumerate(self._priority_candidates[:10]):
+            logger.info(f"  #{i+1}: {c['symbol']} Score: {c['prebreakout_score']:.1f} Stage: {c['stage']} KPIs: {c.get('kpi_count', 12)}")
         await self.state.set_candidates(candidates[:50])
         await self.state.set_status("IDLE")
         self._last_full_scan = time.time()
-        logger.info(f"Full scan complete. Found {len(candidates)} candidates.")
+        logger.info(f"Full scan complete. Found {len(candidates)} candidates. Focusing on top {len(self._priority_candidates)}.")
         for c in candidates[:3]:
             if c["prebreakout_score"] >= 70:
                 await self.telegram.send_prebreakout_alert(
@@ -232,6 +242,32 @@ class ZeusBot:
                     c["reasons"]
                 )
         return candidates
+
+    async def scan_priority_candidates(self) -> List[Dict[str, Any]]:
+        if not self._priority_candidates:
+            return await self.scan_markets()
+        if time.time() - self._priority_last_refresh > self._priority_refresh_interval:
+            logger.info("Priority candidates expired, running full market refresh...")
+            return await self.scan_markets()
+        logger.info(f"Priority scan: Re-analyzing top {len(self._priority_candidates)} candidates...")
+        refreshed_candidates = []
+        semaphore = asyncio.Semaphore(5)
+        active_symbols = set(self.state.get_active_symbols())
+        async def analyze_priority(candidate: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            async with semaphore:
+                if candidate["symbol"] in active_symbols:
+                    return candidate
+                return await self._analyze_multi_timeframe(candidate["symbol"])
+        results = await asyncio.gather(*[analyze_priority(c) for c in self._priority_candidates])
+        refreshed_candidates = [r for r in results if r is not None]
+        refreshed_candidates.sort(key=lambda x: x.get("prebreakout_score", 0), reverse=True)
+        exhausted = [c for c in refreshed_candidates if c.get("stage") in ["NEUTRAL", "DECLINE", "DISTRIBUTION"] or c.get("prebreakout_score", 0) < 40]
+        if len(exhausted) > len(self._priority_candidates) * 0.5:
+            logger.info(f"More than half of priority candidates exhausted ({len(exhausted)}/{len(self._priority_candidates)}), refreshing market...")
+            return await self.scan_markets()
+        self._priority_candidates = [c for c in refreshed_candidates if c.get("prebreakout_score", 0) >= 35][:self._priority_focus_size]
+        logger.info(f"Priority scan complete. {len(self._priority_candidates)} candidates still active.")
+        return refreshed_candidates
 
     async def scan_active_positions(self) -> None:
         open_trades = self.state.get_open_trades()
@@ -574,7 +610,49 @@ class ZeusBot:
                 indicators_at_entry=indicators_snapshot
             )
             self.ml_engine.record_trade_outcome(outcome)
+            entry_hour = entry_time.hour
+            self.telegram.learning_engine.record_trade_outcome(
+                symbol=closed_trade.symbol,
+                pnl=closed_trade.pnl,
+                pnl_pct=pnl_pct,
+                hold_duration_mins=duration // 60,
+                strategy=closed_trade.strategy,
+                entry_hour=entry_hour
+            )
             logger.info(f"Trade closed: {closed_trade.symbol} PnL: ${closed_trade.pnl:.2f} ({pnl_pct:+.2f}%)")
+
+    async def run_priority_cycle(self) -> None:
+        try:
+            await self._refresh_balance()
+            candidates = await self.scan_priority_candidates()
+            if candidates:
+                signals = await self.generate_signals(candidates)
+                for signal in signals[:5]:
+                    if self.state.can_open_new_trade():
+                        should_trade, adjusted_conf, ml_reasons = self.ml_engine.get_trade_recommendation(
+                            signal.symbol,
+                            signal.confidence,
+                            signal.prebreakout_score,
+                            signal.strategy_mode.value
+                        )
+                        tg_should_alert = self.telegram.learning_engine.should_alert_for_symbol(
+                            signal.symbol, signal.confidence
+                        )
+                        is_preferred_hour = self.telegram.learning_engine.is_preferred_trading_hour()
+                        if not tg_should_alert:
+                            ml_reasons.append("Telegram learning: symbol underperforming")
+                            adjusted_conf *= 0.85
+                        if not is_preferred_hour:
+                            ml_reasons.append("Outside preferred trading hours")
+                            adjusted_conf *= 0.95
+                        if should_trade and adjusted_conf >= self.state.state.config.min_confidence:
+                            signal.confidence = adjusted_conf
+                            if ml_reasons:
+                                signal.reasons.extend(ml_reasons)
+                            await self.execute_trade(signal)
+            await self.manage_positions()
+        except Exception as e:
+            logger.error(f"Priority cycle error: {e}")
 
     async def run_cycle(self) -> None:
         try:
@@ -590,6 +668,16 @@ class ZeusBot:
                             signal.prebreakout_score,
                             signal.strategy_mode.value
                         )
+                        tg_should_alert = self.telegram.learning_engine.should_alert_for_symbol(
+                            signal.symbol, signal.confidence
+                        )
+                        is_preferred_hour = self.telegram.learning_engine.is_preferred_trading_hour()
+                        if not tg_should_alert:
+                            ml_reasons.append("Telegram learning: symbol underperforming")
+                            adjusted_conf *= 0.85
+                        if not is_preferred_hour:
+                            ml_reasons.append("Outside preferred trading hours")
+                            adjusted_conf *= 0.95
                         if should_trade and adjusted_conf >= self.state.state.config.min_confidence:
                             signal.confidence = adjusted_conf
                             if ml_reasons:
@@ -605,6 +693,8 @@ class ZeusBot:
                 self._learning_cycle_counter = 0
                 result = self.ml_engine.run_learning_cycle()
                 logger.info(f"ML Learning cycle: {result}")
+                tg_result = self.telegram.learning_engine.run_learning_cycle()
+                logger.info(f"Telegram Learning cycle: {tg_result}")
         except Exception as e:
             logger.error(f"Cycle error: {e}")
             await self.state.increment_errors()
@@ -623,8 +713,16 @@ class ZeusBot:
                 position_interval = self.state.state.config.position_scan_interval
                 should_full_scan = (now - self._last_full_scan) >= full_scan_interval
                 should_position_scan = (now - self._last_position_scan) >= position_interval
+                priority_scan_interval = 120
+                should_priority_scan = self._priority_candidates and (now - self._last_priority_scan) >= priority_scan_interval
                 if should_full_scan:
+                    logger.info("Running full market scan cycle...")
                     await self.run_cycle()
+                    self._last_priority_scan = now
+                elif should_priority_scan:
+                    logger.info(f"Running priority candidates cycle (top {len(self._priority_candidates)})...")
+                    await self.run_priority_cycle()
+                    self._last_priority_scan = now
                 elif should_position_scan:
                     await self._refresh_balance()
                     await self.scan_active_positions()

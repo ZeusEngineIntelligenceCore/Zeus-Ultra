@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-ZEUS TELEGRAM BOT - Real-time Trading Alerts
-Sends notifications for trades, signals, and portfolio updates
+ZEUS TELEGRAM BOT - Real-time Trading Alerts with Learning
+Sends notifications for trades, signals, and learns user preferences
 """
 
 from __future__ import annotations
 import asyncio
 import logging
+import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+import statistics
 
 try:
     from telegram import Bot
@@ -22,6 +25,196 @@ from ..strategies.signal_generator import TradingSignal, SignalType
 from ..exchanges.base import Position, OrderSide
 
 logger = logging.getLogger("Zeus.Telegram")
+
+
+@dataclass
+class TelegramLearningState:
+    preferred_symbols: Dict[str, float] = field(default_factory=dict)
+    avoided_symbols: List[str] = field(default_factory=list)
+    preferred_hours: List[int] = field(default_factory=list)
+    min_profit_threshold: float = 3.0
+    max_acceptable_loss: float = -2.0
+    preferred_hold_duration_mins: int = 60
+    alert_frequency_preference: str = "normal"
+    successful_trade_patterns: List[Dict] = field(default_factory=list)
+    interaction_history: List[Dict] = field(default_factory=list)
+    total_alerts_sent: int = 0
+    positive_feedback_count: int = 0
+    negative_feedback_count: int = 0
+    learned_confidence_threshold: float = 70.0
+    best_performing_strategies: List[str] = field(default_factory=list)
+    last_updated: str = ""
+
+
+class TelegramLearningEngine:
+    def __init__(self, data_file: str = "data/telegram_learning.json"):
+        self.data_file = Path(data_file)
+        self.state = TelegramLearningState()
+        self._load_state()
+        
+    def _load_state(self) -> None:
+        if self.data_file.exists():
+            try:
+                with open(self.data_file, 'r') as f:
+                    data = json.load(f)
+                    self.state.preferred_symbols = data.get("preferred_symbols", {})
+                    self.state.avoided_symbols = data.get("avoided_symbols", [])
+                    self.state.preferred_hours = data.get("preferred_hours", [])
+                    self.state.min_profit_threshold = data.get("min_profit_threshold", 3.0)
+                    self.state.max_acceptable_loss = data.get("max_acceptable_loss", -2.0)
+                    self.state.preferred_hold_duration_mins = data.get("preferred_hold_duration_mins", 60)
+                    self.state.alert_frequency_preference = data.get("alert_frequency_preference", "normal")
+                    self.state.successful_trade_patterns = data.get("successful_trade_patterns", [])[-100:]
+                    self.state.interaction_history = data.get("interaction_history", [])[-200:]
+                    self.state.total_alerts_sent = data.get("total_alerts_sent", 0)
+                    self.state.positive_feedback_count = data.get("positive_feedback_count", 0)
+                    self.state.negative_feedback_count = data.get("negative_feedback_count", 0)
+                    self.state.learned_confidence_threshold = data.get("learned_confidence_threshold", 70.0)
+                    self.state.best_performing_strategies = data.get("best_performing_strategies", [])
+                    self.state.last_updated = data.get("last_updated", "")
+                logger.info(f"Telegram Learning: Loaded state with {len(self.state.preferred_symbols)} preferred symbols")
+            except Exception as e:
+                logger.error(f"Failed to load Telegram learning state: {e}")
+                
+    def _save_state(self) -> None:
+        self.data_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.state.last_updated = datetime.now(timezone.utc).isoformat()
+            data = asdict(self.state)
+            with open(self.data_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save Telegram learning state: {e}")
+            
+    def record_trade_outcome(self, symbol: str, pnl: float, pnl_pct: float, 
+                             hold_duration_mins: int, strategy: str, 
+                             entry_hour: int) -> None:
+        if pnl > 0:
+            if symbol not in self.state.preferred_symbols:
+                self.state.preferred_symbols[symbol] = 0.0
+            self.state.preferred_symbols[symbol] += pnl_pct
+            if symbol in self.state.avoided_symbols:
+                self.state.avoided_symbols.remove(symbol)
+            self.state.successful_trade_patterns.append({
+                "symbol": symbol,
+                "pnl_pct": pnl_pct,
+                "hold_duration": hold_duration_mins,
+                "strategy": strategy,
+                "entry_hour": entry_hour,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+            if entry_hour not in self.state.preferred_hours:
+                win_hours = [p.get("entry_hour") for p in self.state.successful_trade_patterns 
+                            if p.get("entry_hour") is not None]
+                if win_hours:
+                    hour_counts = {}
+                    for h in win_hours:
+                        hour_counts[h] = hour_counts.get(h, 0) + 1
+                    self.state.preferred_hours = sorted(hour_counts.keys(), 
+                                                       key=lambda x: hour_counts[x], 
+                                                       reverse=True)[:8]
+            if strategy and strategy not in self.state.best_performing_strategies:
+                strat_wins = [p.get("strategy") for p in self.state.successful_trade_patterns 
+                             if p.get("pnl_pct", 0) > 2.0]
+                if strat_wins:
+                    strat_counts = {}
+                    for s in strat_wins:
+                        if s:
+                            strat_counts[s] = strat_counts.get(s, 0) + 1
+                    self.state.best_performing_strategies = sorted(strat_counts.keys(),
+                                                                   key=lambda x: strat_counts[x],
+                                                                   reverse=True)[:5]
+        else:
+            if symbol in self.state.preferred_symbols:
+                self.state.preferred_symbols[symbol] -= abs(pnl_pct)
+                if self.state.preferred_symbols[symbol] < -5:
+                    if symbol not in self.state.avoided_symbols:
+                        self.state.avoided_symbols.append(symbol)
+        win_pcts = [p.get("pnl_pct", 0) for p in self.state.successful_trade_patterns[-50:]]
+        if len(win_pcts) >= 10:
+            self.state.min_profit_threshold = max(2.0, statistics.median(win_pcts) * 0.8)
+        hold_times = [p.get("hold_duration", 60) for p in self.state.successful_trade_patterns[-50:]]
+        if len(hold_times) >= 10:
+            self.state.preferred_hold_duration_mins = int(statistics.median(hold_times))
+        self._save_state()
+        
+    def record_alert_sent(self, alert_type: str, symbol: str = "") -> None:
+        self.state.total_alerts_sent += 1
+        self.state.interaction_history.append({
+            "type": "alert_sent",
+            "alert_type": alert_type,
+            "symbol": symbol,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        if len(self.state.interaction_history) > 200:
+            self.state.interaction_history = self.state.interaction_history[-200:]
+        self._save_state()
+        
+    def should_alert_for_symbol(self, symbol: str, confidence: float) -> bool:
+        if symbol in self.state.avoided_symbols:
+            return confidence > self.state.learned_confidence_threshold + 15
+        if symbol in self.state.preferred_symbols:
+            boost = min(10, self.state.preferred_symbols[symbol] / 2)
+            return confidence > self.state.learned_confidence_threshold - boost
+        return confidence >= self.state.learned_confidence_threshold
+        
+    def is_preferred_trading_hour(self) -> bool:
+        if not self.state.preferred_hours:
+            return True
+        current_hour = datetime.now(timezone.utc).hour
+        return current_hour in self.state.preferred_hours
+        
+    def get_optimal_profit_target(self) -> float:
+        return self.state.min_profit_threshold
+        
+    def get_optimal_hold_duration(self) -> int:
+        return self.state.preferred_hold_duration_mins
+        
+    def get_learning_insights(self) -> Dict[str, Any]:
+        top_symbols = sorted(self.state.preferred_symbols.items(), 
+                            key=lambda x: x[1], reverse=True)[:10]
+        return {
+            "top_symbols": dict(top_symbols),
+            "avoided_symbols": self.state.avoided_symbols[:10],
+            "preferred_hours": self.state.preferred_hours,
+            "min_profit_threshold": self.state.min_profit_threshold,
+            "optimal_hold_mins": self.state.preferred_hold_duration_mins,
+            "confidence_threshold": self.state.learned_confidence_threshold,
+            "best_strategies": self.state.best_performing_strategies,
+            "total_alerts": self.state.total_alerts_sent,
+            "successful_patterns": len(self.state.successful_trade_patterns)
+        }
+        
+    def run_learning_cycle(self) -> Dict[str, Any]:
+        patterns = self.state.successful_trade_patterns
+        if len(patterns) < 5:
+            return {"status": "insufficient_data"}
+        win_pcts = [p.get("pnl_pct", 0) for p in patterns[-50:]]
+        if win_pcts:
+            avg_win = statistics.mean(win_pcts)
+            self.state.min_profit_threshold = max(2.0, avg_win * 0.7)
+        hold_times = [p.get("hold_duration", 60) for p in patterns[-50:]]
+        if hold_times:
+            self.state.preferred_hold_duration_mins = int(statistics.median(hold_times))
+        if len(patterns) >= 20:
+            high_profit_trades = [p for p in patterns if p.get("pnl_pct", 0) >= 3.0]
+            if len(high_profit_trades) >= 5:
+                hours = [p.get("entry_hour") for p in high_profit_trades if p.get("entry_hour") is not None]
+                if hours:
+                    hour_counts = {}
+                    for h in hours:
+                        hour_counts[h] = hour_counts.get(h, 0) + 1
+                    self.state.preferred_hours = sorted(hour_counts.keys(),
+                                                       key=lambda x: hour_counts[x],
+                                                       reverse=True)[:8]
+        self._save_state()
+        logger.info(f"Telegram Learning: Cycle complete. Profit target: {self.state.min_profit_threshold:.1f}%")
+        return {
+            "status": "success",
+            "min_profit_threshold": self.state.min_profit_threshold,
+            "optimal_hold_mins": self.state.preferred_hold_duration_mins,
+            "preferred_hours": self.state.preferred_hours
+        }
 
 
 @dataclass
@@ -68,6 +261,7 @@ class TelegramAlerts:
         self._batched_alerts: List[BatchedAlert] = []
         self._last_batch_sent: Optional[datetime] = None
         self._urgent_types = {"error", "trade_closed", "bot_status", "trade_opened"}
+        self.learning_engine = TelegramLearningEngine()
 
     async def initialize(self) -> bool:
         if not TELEGRAM_AVAILABLE:

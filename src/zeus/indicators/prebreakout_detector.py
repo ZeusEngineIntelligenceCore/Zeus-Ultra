@@ -87,18 +87,29 @@ class BreakoutConfig:
     def __post_init__(self):
         if self.weights is None:
             self.weights = {
-                "rsi": 0.12,
-                "momentum_cf": 0.15,
-                "vol_spike": 0.12,
-                "pressure": 0.14,
-                "microtrend": 0.11,
-                "accel": 0.08,
-                "anomaly_vol": 0.07,
-                "candle_proj": 0.05,
-                "consistency": 0.05,
-                "impulse": 0.06,
-                "liquidity": 0.03,
-                "squeeze": 0.02
+                "rsi": 0.06,
+                "momentum_cf": 0.08,
+                "vol_spike": 0.06,
+                "pressure": 0.07,
+                "microtrend": 0.06,
+                "accel": 0.04,
+                "anomaly_vol": 0.04,
+                "candle_proj": 0.03,
+                "consistency": 0.03,
+                "impulse": 0.04,
+                "liquidity": 0.02,
+                "squeeze": 0.02,
+                "adx_strength": 0.05,
+                "aroon_signal": 0.04,
+                "supertrend_conf": 0.05,
+                "vortex_signal": 0.04,
+                "linreg_trend": 0.05,
+                "elder_power": 0.04,
+                "ultimate_osc": 0.04,
+                "choppiness": 0.03,
+                "klinger_signal": 0.04,
+                "donchian_position": 0.04,
+                "cci_signal": 0.03
             }
 
 
@@ -278,9 +289,105 @@ class PreBreakoutDetector:
             return "BUILDING"
         return "NEUTRAL"
 
+    async def adx_strength(self, high: List[float], low: List[float], close: List[float]) -> float:
+        adx, plus_di, minus_di = self.math.adx(high, low, close)
+        if adx > 25 and plus_di > minus_di:
+            return clip01(0.7 + (adx - 25) / 50)
+        elif adx > 25 and minus_di > plus_di:
+            return clip01(0.3 - (adx - 25) / 100)
+        return clip01(adx / 50)
+
+    async def aroon_signal(self, high: List[float], low: List[float]) -> float:
+        aroon_up, aroon_down, aroon_osc = self.math.aroon(high, low)
+        if aroon_up > 70 and aroon_down < 30:
+            return clip01(0.8 + aroon_osc / 200)
+        elif aroon_down > 70 and aroon_up < 30:
+            return clip01(0.2 - aroon_osc / 200)
+        return clip01(0.5 + aroon_osc / 200)
+
+    async def supertrend_conf(self, high: List[float], low: List[float], close: List[float]) -> float:
+        st_val, is_uptrend = self.math.supertrend(high, low, close)
+        distance = abs(close[-1] - st_val) / (close[-1] + 1e-9)
+        if is_uptrend:
+            return clip01(0.7 + distance * 5)
+        return clip01(0.3 - distance * 5)
+
+    async def vortex_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        vi_plus, vi_minus = self.math.vortex_indicator(high, low, close)
+        diff = vi_plus - vi_minus
+        if vi_plus > vi_minus:
+            return clip01(0.6 + diff * 2)
+        return clip01(0.4 + diff * 2)
+
+    async def linreg_trend(self, close: List[float]) -> float:
+        val, slope, r2 = self.math.linear_regression(close, 20)
+        if slope > 0 and r2 > 0.7:
+            return clip01(0.8 + r2 * 0.2)
+        elif slope > 0:
+            return clip01(0.5 + slope * 10)
+        elif slope < 0 and r2 > 0.7:
+            return clip01(0.2 - r2 * 0.2)
+        return clip01(0.5 + slope * 5)
+
+    async def elder_power(self, high: List[float], low: List[float], close: List[float]) -> float:
+        bull, bear = self.math.elder_ray(high, low, close)
+        net_power = bull + bear
+        if bull > 0 and bear > 0:
+            return clip01(0.8)
+        elif bull > 0 and bear < 0 and bull > abs(bear):
+            return clip01(0.7 + tanh01(net_power * 5) * 0.2)
+        elif bear < 0 and bull < abs(bear):
+            return clip01(0.3 - tanh01(abs(net_power) * 5) * 0.2)
+        return clip01(0.5 + tanh01(net_power * 5) * 0.3)
+
+    async def ultimate_osc(self, high: List[float], low: List[float], close: List[float]) -> float:
+        uo = self.math.ultimate_oscillator(high, low, close)
+        if uo < 30:
+            return clip01(0.8 + (30 - uo) / 60)
+        elif uo > 70:
+            return clip01(0.3 - (uo - 70) / 60)
+        return clip01((uo - 30) / 40)
+
+    async def choppiness_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        chop = self.math.choppiness_index(high, low, close)
+        if chop < 38.2:
+            return clip01(0.85)
+        elif chop > 61.8:
+            return clip01(0.25)
+        return clip01(1.0 - chop / 100)
+
+    async def klinger_signal_score(self, high: List[float], low: List[float], close: List[float], volume: List[float]) -> float:
+        kvo, signal = self.math.klinger_oscillator(high, low, close, volume)
+        if kvo > signal and kvo > 0:
+            return clip01(0.75 + tanh01(kvo / 1000000) * 0.2)
+        elif kvo > signal:
+            return clip01(0.6)
+        elif kvo < signal and kvo < 0:
+            return clip01(0.25 - tanh01(abs(kvo) / 1000000) * 0.2)
+        return clip01(0.4)
+
+    async def donchian_position(self, high: List[float], low: List[float], close: List[float]) -> float:
+        upper, mid, lower = self.math.donchian_channels(high, low)
+        if upper - lower < 1e-9:
+            return 0.5
+        position = (close[-1] - lower) / (upper - lower)
+        if position > 0.8:
+            return clip01(0.7 + (position - 0.8) * 1.5)
+        elif position < 0.2:
+            return clip01(0.8 + (0.2 - position) * 1.0)
+        return clip01(position)
+
+    async def cci_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        cci = self.math.cci(high, low, close)
+        if cci < -100:
+            return clip01(0.85 + (abs(cci) - 100) / 400)
+        elif cci > 100:
+            return clip01(0.25 - (cci - 100) / 400)
+        return clip01(0.5 + cci / 400)
+
     async def analyze(self, symbol: str, high: List[float], low: List[float], 
                      close: List[float], volume: List[float]) -> Dict[str, Any]:
-        if len(close) < 30:
+        if len(close) < 50:
             return {
                 "symbol": symbol,
                 "stage": "INSUFFICIENT_DATA",
@@ -300,27 +407,54 @@ class PreBreakoutDetector:
             self.consistency(close),
             self.impulse(close),
             self.liquidity_shift(liq),
-            self.squeeze_pressure(high, low, close)
+            self.squeeze_pressure(high, low, close),
+            self.adx_strength(high, low, close),
+            self.aroon_signal(high, low),
+            self.supertrend_conf(high, low, close),
+            self.vortex_signal(high, low, close),
+            self.linreg_trend(close),
+            self.elder_power(high, low, close),
+            self.ultimate_osc(high, low, close),
+            self.choppiness_signal(high, low, close),
+            self.klinger_signal_score(high, low, close, volume),
+            self.donchian_position(high, low, close),
+            self.cci_signal(high, low, close)
         )
         names = [
             "rsi", "momentum_cf", "vol_spike", "pressure", "microtrend",
             "accel", "anomaly_vol", "candle_proj", "consistency",
-            "impulse", "liquidity", "squeeze"
+            "impulse", "liquidity", "squeeze",
+            "adx_strength", "aroon_signal", "supertrend_conf", "vortex_signal",
+            "linreg_trend", "elder_power", "ultimate_osc", "choppiness",
+            "klinger_signal", "donchian_position", "cci_signal"
         ]
         feats = {k: round(v, 4) for k, v in zip(names, tasks)}
         weights = self.cfg.weights or {}
         raw_score = sum(feats[k] * weights.get(k, 0.0) for k in names)
-        high_value_signals = sum(1 for k in ["momentum_cf", "pressure", "impulse", "squeeze"] if feats[k] >= 0.60)
-        if high_value_signals >= 3:
+        high_value_signals = sum(1 for k in [
+            "momentum_cf", "pressure", "impulse", "squeeze", 
+            "supertrend_conf", "adx_strength", "linreg_trend"
+        ] if feats.get(k, 0) >= 0.60)
+        if high_value_signals >= 5:
+            raw_score *= self.cfg.momentum_boost * 1.1
+        elif high_value_signals >= 4:
             raw_score *= self.cfg.momentum_boost
+        elif high_value_signals >= 3:
+            raw_score *= 1.0 + (self.cfg.momentum_boost - 1.0) * 0.7
         elif high_value_signals >= 2:
-            raw_score *= 1.0 + (self.cfg.momentum_boost - 1.0) * 0.5
+            raw_score *= 1.0 + (self.cfg.momentum_boost - 1.0) * 0.4
         if feats["vol_spike"] >= 0.65 and feats["momentum_cf"] >= 0.55:
             raw_score *= 1.18
         if feats["squeeze"] >= 0.75 and feats["microtrend"] >= 0.55:
             raw_score *= self.cfg.early_detection_bonus
         if feats["accel"] >= 0.65 and feats["pressure"] >= 0.6:
             raw_score *= 1.12
+        if feats.get("supertrend_conf", 0) >= 0.7 and feats.get("vortex_signal", 0) >= 0.6:
+            raw_score *= 1.15
+        if feats.get("aroon_signal", 0) >= 0.75 and feats.get("donchian_position", 0) >= 0.7:
+            raw_score *= 1.12
+        if feats.get("choppiness", 0) >= 0.7:
+            raw_score *= 1.08
         prebreakout_score = round(clip01(raw_score) * 100.0, 2)
         breakout_prob = round(math.tanh(prebreakout_score / 80.0), 4)
         enhanced_prob = round(1.0 - math.exp(-prebreakout_score / 75.0), 4)
@@ -342,12 +476,30 @@ class PreBreakoutDetector:
             reasons.append("Strong Micro-Trend")
         if feats["consistency"] > 0.6:
             reasons.append("Consistent Price Action")
+        if feats.get("supertrend_conf", 0) > 0.7:
+            reasons.append("Supertrend Bullish Confirmation")
+        if feats.get("adx_strength", 0) > 0.65:
+            reasons.append("Strong ADX Trend")
+        if feats.get("aroon_signal", 0) > 0.75:
+            reasons.append("Aroon Breakout Signal")
+        if feats.get("vortex_signal", 0) > 0.65:
+            reasons.append("Vortex Bullish Crossover")
+        if feats.get("linreg_trend", 0) > 0.7:
+            reasons.append("Strong Linear Trend")
+        if feats.get("choppiness", 0) > 0.7:
+            reasons.append("Low Choppiness - Trending")
+        if feats.get("elder_power", 0) > 0.7:
+            reasons.append("Elder Ray Bull Power")
+        if feats.get("klinger_signal", 0) > 0.7:
+            reasons.append("Klinger Volume Confirmation")
+        confidence = min(100, max(0, prebreakout_score * 0.9 + high_value_signals * 2))
         return {
             "symbol": symbol,
             "stage": stage,
             "prebreakout_score": prebreakout_score,
             "breakout_prob": breakout_prob,
             "enhanced_prob": enhanced_prob,
+            "confidence": round(confidence, 2),
             "current_price": close[-1],
             "buy_anchor": buy_anchor,
             "sell_anchor": sell_anchor,
@@ -357,7 +509,9 @@ class PreBreakoutDetector:
             "take_profit": round(take_profit, 8),
             "atr": round(atr, 8),
             "features": feats,
-            "reasons": reasons
+            "reasons": reasons,
+            "kpi_count": len(names),
+            "high_value_signals": high_value_signals
         }
 
 

@@ -400,8 +400,323 @@ class MathKernel:
         return mf_volume / total_volume
 
     @classmethod
+    def dema(cls, vals: List[float], length: int) -> float:
+        if len(vals) < length:
+            return cls.ema(vals, length)
+        ema1 = cls.ema(vals, length)
+        ema_series = []
+        for i in range(length, len(vals) + 1):
+            ema_series.append(cls.ema(vals[:i], length))
+        ema2 = cls.ema(ema_series, length) if len(ema_series) >= length else ema1
+        return 2 * ema1 - ema2
+
+    @classmethod
+    def tema(cls, vals: List[float], length: int) -> float:
+        if len(vals) < length:
+            return cls.ema(vals, length)
+        ema1 = cls.ema(vals, length)
+        ema_series = []
+        for i in range(length, len(vals) + 1):
+            ema_series.append(cls.ema(vals[:i], length))
+        ema2 = cls.ema(ema_series, length) if len(ema_series) >= length else ema1
+        ema2_series = []
+        for i in range(length, len(ema_series) + 1):
+            ema2_series.append(cls.ema(ema_series[:i], length))
+        ema3 = cls.ema(ema2_series, length) if len(ema2_series) >= length else ema2
+        return 3 * ema1 - 3 * ema2 + ema3
+
+    @classmethod
+    def trix(cls, close: List[float], length: int = 18) -> float:
+        if len(close) < length * 3:
+            return 0.0
+        ema1 = [cls.ema(close[:i+1], length) for i in range(len(close))]
+        ema2 = [cls.ema(ema1[:i+1], length) for i in range(len(ema1))]
+        ema3 = [cls.ema(ema2[:i+1], length) for i in range(len(ema2))]
+        if len(ema3) < 2 or abs(ema3[-2]) < cls.EPS:
+            return 0.0
+        return ((ema3[-1] - ema3[-2]) / ema3[-2]) * 10000
+
+    @classmethod
+    def ultimate_oscillator(cls, high: List[float], low: List[float], close: List[float],
+                            p1: int = 7, p2: int = 14, p3: int = 28) -> float:
+        n = min(len(high), len(low), len(close))
+        if n < p3 + 1:
+            return 50.0
+        bp_list = []
+        tr_list = []
+        for i in range(1, n):
+            true_low = min(low[i], close[i-1])
+            bp = close[i] - true_low
+            tr = max(high[i], close[i-1]) - true_low
+            bp_list.append(bp)
+            tr_list.append(tr)
+        if len(bp_list) < p3:
+            return 50.0
+        avg1 = sum(bp_list[-p1:]) / (sum(tr_list[-p1:]) + cls.EPS)
+        avg2 = sum(bp_list[-p2:]) / (sum(tr_list[-p2:]) + cls.EPS)
+        avg3 = sum(bp_list[-p3:]) / (sum(tr_list[-p3:]) + cls.EPS)
+        uo = 100 * ((4 * avg1) + (2 * avg2) + avg3) / 7
+        return uo
+
+    @classmethod
+    def aroon(cls, high: List[float], low: List[float], length: int = 25) -> Tuple[float, float, float]:
+        n = min(len(high), len(low))
+        if n < length:
+            return 50.0, 50.0, 0.0
+        recent_high = high[-length:]
+        recent_low = low[-length:]
+        high_idx = recent_high.index(max(recent_high))
+        low_idx = recent_low.index(min(recent_low))
+        aroon_up = ((length - (length - 1 - high_idx)) / length) * 100
+        aroon_down = ((length - (length - 1 - low_idx)) / length) * 100
+        aroon_osc = aroon_up - aroon_down
+        return aroon_up, aroon_down, aroon_osc
+
+    @classmethod
+    def parabolic_sar(cls, high: List[float], low: List[float], close: List[float],
+                      af_start: float = 0.02, af_step: float = 0.02, af_max: float = 0.2) -> Tuple[float, bool]:
+        n = min(len(high), len(low), len(close))
+        if n < 5:
+            return close[-1] if close else 0.0, True
+        is_uptrend = close[-1] > close[0]
+        af = af_start
+        sar = min(low[:5]) if is_uptrend else max(high[:5])
+        ep = max(high[:5]) if is_uptrend else min(low[:5])
+        for i in range(5, n):
+            if is_uptrend:
+                sar = sar + af * (ep - sar)
+                sar = min(sar, low[i-1], low[i-2])
+                if high[i] > ep:
+                    ep = high[i]
+                    af = min(af + af_step, af_max)
+                if low[i] < sar:
+                    is_uptrend = False
+                    sar = ep
+                    ep = low[i]
+                    af = af_start
+            else:
+                sar = sar + af * (ep - sar)
+                sar = max(sar, high[i-1], high[i-2])
+                if low[i] < ep:
+                    ep = low[i]
+                    af = min(af + af_step, af_max)
+                if high[i] > sar:
+                    is_uptrend = True
+                    sar = ep
+                    ep = high[i]
+                    af = af_start
+        return sar, is_uptrend
+
+    @classmethod
+    def choppiness_index(cls, high: List[float], low: List[float], close: List[float], length: int = 14) -> float:
+        n = min(len(high), len(low), len(close))
+        if n < length + 1:
+            return 50.0
+        atr_sum = sum(cls.tr_series(high, low, close)[-length:])
+        highest = max(high[-length:])
+        lowest = min(low[-length:])
+        if highest - lowest < cls.EPS:
+            return 50.0
+        chop = 100 * math.log10(atr_sum / (highest - lowest)) / math.log10(length)
+        return max(0, min(100, chop))
+
+    @classmethod
+    def elder_ray(cls, high: List[float], low: List[float], close: List[float], length: int = 13) -> Tuple[float, float]:
+        if len(close) < length:
+            return 0.0, 0.0
+        ema_val = cls.ema(close, length)
+        bull_power = high[-1] - ema_val
+        bear_power = low[-1] - ema_val
+        return bull_power, bear_power
+
+    @classmethod
+    def klinger_oscillator(cls, high: List[float], low: List[float], close: List[float],
+                           volume: List[float], fast: int = 34, slow: int = 55) -> Tuple[float, float]:
+        n = min(len(high), len(low), len(close), len(volume))
+        if n < slow + 1:
+            return 0.0, 0.0
+        trend = []
+        dm = []
+        cm = []
+        vf = []
+        for i in range(1, n):
+            hlc_curr = high[i] + low[i] + close[i]
+            hlc_prev = high[i-1] + low[i-1] + close[i-1]
+            t = 1 if hlc_curr > hlc_prev else -1
+            trend.append(t)
+            dm_val = high[i] - low[i]
+            dm.append(dm_val)
+            if i == 1:
+                cm.append(dm_val)
+            else:
+                if trend[-1] == trend[-2] if len(trend) >= 2 else True:
+                    cm.append(cm[-1] + dm_val)
+                else:
+                    cm.append(dm_val)
+            if abs(cm[-1]) < cls.EPS:
+                vf.append(0.0)
+            else:
+                vf.append(volume[i] * abs(2 * (dm_val / cm[-1]) - 1) * t * 100)
+        if len(vf) < slow:
+            return 0.0, 0.0
+        kvo = cls.ema(vf, fast) - cls.ema(vf, slow)
+        signal = cls.ema(vf[-13:], 13) if len(vf) >= 13 else kvo
+        return kvo, signal
+
+    @classmethod
+    def coppock_curve(cls, close: List[float], roc1: int = 14, roc2: int = 11, wma_length: int = 10) -> float:
+        if len(close) < max(roc1, roc2) + wma_length:
+            return 0.0
+        roc_values = []
+        for i in range(max(roc1, roc2), len(close)):
+            r1 = ((close[i] - close[i - roc1]) / close[i - roc1]) * 100 if close[i - roc1] > cls.EPS else 0.0
+            r2 = ((close[i] - close[i - roc2]) / close[i - roc2]) * 100 if close[i - roc2] > cls.EPS else 0.0
+            roc_values.append(r1 + r2)
+        return cls.wma(roc_values, wma_length)
+
+    @classmethod
+    def force_index(cls, close: List[float], volume: List[float], length: int = 13) -> float:
+        n = min(len(close), len(volume))
+        if n < 2:
+            return 0.0
+        fi_values = []
+        for i in range(1, n):
+            fi_values.append((close[i] - close[i-1]) * volume[i])
+        return cls.ema(fi_values, length)
+
+    @classmethod
+    def ease_of_movement(cls, high: List[float], low: List[float], volume: List[float], length: int = 14) -> float:
+        n = min(len(high), len(low), len(volume))
+        if n < length + 1:
+            return 0.0
+        emv_values = []
+        for i in range(1, n):
+            dm = ((high[i] + low[i]) / 2) - ((high[i-1] + low[i-1]) / 2)
+            br = (volume[i] / 10000) / ((high[i] - low[i]) + cls.EPS)
+            emv_values.append(dm / (br + cls.EPS))
+        return cls.sma(emv_values, length)
+
+    @classmethod
+    def mass_index(cls, high: List[float], low: List[float], ema_length: int = 9, sum_length: int = 25) -> float:
+        n = min(len(high), len(low))
+        if n < sum_length + ema_length:
+            return 25.0
+        hl_range = [high[i] - low[i] for i in range(n)]
+        ema1 = [cls.ema(hl_range[:i+1], ema_length) for i in range(n)]
+        ema2 = [cls.ema(ema1[:i+1], ema_length) for i in range(n)]
+        ratio = [ema1[i] / (ema2[i] + cls.EPS) for i in range(n)]
+        return sum(ratio[-sum_length:])
+
+    @classmethod
+    def vortex_indicator(cls, high: List[float], low: List[float], close: List[float], length: int = 14) -> Tuple[float, float]:
+        n = min(len(high), len(low), len(close))
+        if n < length + 1:
+            return 1.0, 1.0
+        vm_plus = []
+        vm_minus = []
+        tr_list = []
+        for i in range(1, n):
+            vm_plus.append(abs(high[i] - low[i-1]))
+            vm_minus.append(abs(low[i] - high[i-1]))
+            tr = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
+            tr_list.append(tr)
+        sum_tr = sum(tr_list[-length:])
+        if sum_tr < cls.EPS:
+            return 1.0, 1.0
+        vi_plus = sum(vm_plus[-length:]) / sum_tr
+        vi_minus = sum(vm_minus[-length:]) / sum_tr
+        return vi_plus, vi_minus
+
+    @classmethod
+    def donchian_channels(cls, high: List[float], low: List[float], length: int = 20) -> Tuple[float, float, float]:
+        n = min(len(high), len(low))
+        if n < length:
+            if high and low:
+                return high[-1], (high[-1] + low[-1]) / 2, low[-1]
+            return 0.0, 0.0, 0.0
+        upper = max(high[-length:])
+        lower = min(low[-length:])
+        middle = (upper + lower) / 2
+        return upper, middle, lower
+
+    @classmethod
+    def supertrend(cls, high: List[float], low: List[float], close: List[float], 
+                   length: int = 10, multiplier: float = 3.0) -> Tuple[float, bool]:
+        n = min(len(high), len(low), len(close))
+        if n < length + 1:
+            return close[-1] if close else 0.0, True
+        atr_val = cls.atr(high, low, close, length)
+        hl2 = (high[-1] + low[-1]) / 2
+        upper_band = hl2 + (multiplier * atr_val)
+        lower_band = hl2 - (multiplier * atr_val)
+        is_uptrend = close[-1] > lower_band
+        supertrend = lower_band if is_uptrend else upper_band
+        return supertrend, is_uptrend
+
+    @classmethod
+    def accumulation_distribution(cls, high: List[float], low: List[float], close: List[float], volume: List[float]) -> float:
+        n = min(len(high), len(low), len(close), len(volume))
+        if n < 1:
+            return 0.0
+        ad = 0.0
+        for i in range(n):
+            hl_range = high[i] - low[i]
+            if hl_range > cls.EPS:
+                clv = ((close[i] - low[i]) - (high[i] - close[i])) / hl_range
+                ad += clv * volume[i]
+        return ad
+
+    @classmethod
+    def linear_regression(cls, close: List[float], length: int = 14) -> Tuple[float, float, float]:
+        if len(close) < length:
+            return close[-1] if close else 0.0, 0.0, 0.0
+        y = close[-length:]
+        x = list(range(length))
+        mx = (length - 1) / 2
+        my = sum(y) / length
+        num = sum((x[i] - mx) * (y[i] - my) for i in range(length))
+        den = sum((xi - mx) ** 2 for xi in x) or 1.0
+        slope = num / den
+        intercept = my - slope * mx
+        value = intercept + slope * (length - 1)
+        r_squared = 0.0
+        ss_tot = sum((yi - my) ** 2 for yi in y)
+        if ss_tot > cls.EPS:
+            ss_res = sum((y[i] - (intercept + slope * x[i])) ** 2 for i in range(length))
+            r_squared = 1 - (ss_res / ss_tot)
+        return value, slope, r_squared
+
+    @classmethod
+    def standard_deviation(cls, close: List[float], length: int = 20) -> float:
+        if len(close) < length:
+            return 0.0
+        recent = close[-length:]
+        mean = sum(recent) / length
+        variance = sum((x - mean) ** 2 for x in recent) / length
+        return math.sqrt(variance)
+
+    @classmethod
+    def coefficient_of_variation(cls, close: List[float], length: int = 20) -> float:
+        if len(close) < length:
+            return 0.0
+        mean = sum(close[-length:]) / length
+        if abs(mean) < cls.EPS:
+            return 0.0
+        std = cls.standard_deviation(close, length)
+        return (std / abs(mean)) * 100
+
+    @classmethod
     def calculate_all(cls, high: List[float], low: List[float], close: List[float], 
                       volume: List[float]) -> dict:
+        aroon_up, aroon_down, aroon_osc = cls.aroon(high, low)
+        vi_plus, vi_minus = cls.vortex_indicator(high, low, close)
+        supertrend_val, supertrend_up = cls.supertrend(high, low, close)
+        donchian_upper, donchian_mid, donchian_lower = cls.donchian_channels(high, low)
+        sar_val, sar_uptrend = cls.parabolic_sar(high, low, close)
+        bull_power, bear_power = cls.elder_ray(high, low, close)
+        kvo, kvo_signal = cls.klinger_oscillator(high, low, close, volume)
+        linreg_val, linreg_slope, linreg_r2 = cls.linear_regression(close)
+        
         return {
             "rsi": cls.rsi(close),
             "stoch_rsi": cls.stochastic_rsi(close),
@@ -421,5 +736,37 @@ class MathKernel:
             "momentum": cls.momentum_oscillator(close),
             "roc": cls.rate_of_change(close),
             "cmf": cls.chaikin_money_flow(high, low, close, volume),
-            "volume_profile": cls.volume_profile(close, volume)
+            "volume_profile": cls.volume_profile(close, volume),
+            "dema": cls.dema(close, 20),
+            "tema": cls.tema(close, 20),
+            "trix": cls.trix(close),
+            "ultimate_oscillator": cls.ultimate_oscillator(high, low, close),
+            "aroon_up": aroon_up,
+            "aroon_down": aroon_down,
+            "aroon_osc": aroon_osc,
+            "choppiness": cls.choppiness_index(high, low, close),
+            "bull_power": bull_power,
+            "bear_power": bear_power,
+            "coppock": cls.coppock_curve(close),
+            "force_index": cls.force_index(close, volume),
+            "ease_of_movement": cls.ease_of_movement(high, low, volume),
+            "mass_index": cls.mass_index(high, low),
+            "vortex_plus": vi_plus,
+            "vortex_minus": vi_minus,
+            "donchian_upper": donchian_upper,
+            "donchian_mid": donchian_mid,
+            "donchian_lower": donchian_lower,
+            "supertrend": supertrend_val,
+            "supertrend_bullish": supertrend_up,
+            "parabolic_sar": sar_val,
+            "sar_uptrend": sar_uptrend,
+            "acc_dist": cls.accumulation_distribution(high, low, close, volume),
+            "linreg_value": linreg_val,
+            "linreg_slope": linreg_slope,
+            "linreg_r2": linreg_r2,
+            "std_dev": cls.standard_deviation(close),
+            "coef_variation": cls.coefficient_of_variation(close),
+            "klinger": kvo,
+            "klinger_signal": kvo_signal,
+            "hull_ma": cls.hull_ma(close, 20)
         }
