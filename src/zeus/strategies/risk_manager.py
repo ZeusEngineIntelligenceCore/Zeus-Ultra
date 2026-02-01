@@ -26,8 +26,8 @@ class RiskConfig:
     max_portfolio_risk: float = 0.90
     max_open_positions: int = 2
     max_position_size_pct: float = 0.90
-    max_daily_loss_pct: float = 0.50
-    max_drawdown_pct: float = 0.80
+    max_daily_loss_pct: float = 1.0
+    max_drawdown_pct: float = 1.0
     kelly_fraction: float = 0.25
     min_win_rate: float = 0.40
     trailing_stop_activation: float = 0.015

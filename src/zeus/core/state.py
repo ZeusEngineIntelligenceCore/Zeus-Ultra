@@ -51,7 +51,7 @@ class BotConfig:
     enable_trailing_stop: bool = True
     enable_partial_tp: bool = False
     risk_per_trade: float = 0.50
-    max_daily_loss: float = 0.50
+    max_daily_loss: float = 1.0
 
 
 @dataclass
