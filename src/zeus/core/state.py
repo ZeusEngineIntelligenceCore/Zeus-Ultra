@@ -202,6 +202,9 @@ class StateManager:
     def get_open_positions_count(self) -> int:
         return len(self.state.active_trades)
 
+    def get_open_trades(self) -> List[TradeRecord]:
+        return list(self.state.active_trades.values())
+
     def can_open_new_trade(self) -> bool:
         return self.get_open_positions_count() < self.state.config.max_open_positions
 
