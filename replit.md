@@ -71,6 +71,7 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Added Telegram alert batching - non-urgent alerts held for 30 min summaries (February 2026)
 - Enhanced signal formulas with multi-confluence scoring and advanced trend analysis (February 2026)
 - Upgraded prebreakout detector with momentum boost and volume confirmation (February 2026)
 - Enhanced continuous trading with 20 max positions (February 2026)
