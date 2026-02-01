@@ -22,10 +22,21 @@ Zeus is a professional-grade autonomous cryptocurrency trading bot designed for 
 │   │   └── kraken.py         # Kraken API integration
 │   ├── indicators/
 │   │   ├── math_kernel.py    # 40+ technical indicators
-│   │   └── prebreakout_detector.py  # 23-KPI pre-breakout detection
+│   │   ├── prebreakout_detector.py  # 23-KPI pre-breakout detection
+│   │   ├── microstructure.py # Order flow & VPIN analysis
+│   │   └── advanced_math.py  # Hurst, fractals, wavelets
 │   ├── strategies/
 │   │   ├── signal_generator.py  # Trading signal generation
 │   │   └── risk_manager.py   # Risk management & position sizing
+│   ├── risk/
+│   │   └── advanced_risk.py  # VaR, Kelly, correlation matrix
+│   ├── execution/
+│   │   └── smart_execution.py # TWAP/VWAP algorithms
+│   ├── ml/
+│   │   ├── learning_engine.py # Trade outcome learning
+│   │   └── regime_detector.py # HMM/GARCH regime detection
+│   ├── data/
+│   │   └── alternative_data.py # Fear&Greed, funding rates
 │   └── alerts/
 │       └── telegram_bot.py   # Telegram notifications
 ├── data/                      # Bot state storage
@@ -33,15 +44,64 @@ Zeus is a professional-grade autonomous cryptocurrency trading bot designed for 
 ```
 
 ## Features
+
+### Core Trading Engine
 - **40+ Technical Indicators**: RSI, MACD, Bollinger Bands, ATR, VWAP, Ichimoku, Supertrend, Aroon, Vortex, Elder Ray, and many more
 - **23 KPI Pre-Breakout Scoring**: Comprehensive analysis with weighted multi-factor scoring
 - **Top-20 Priority Focus**: Identifies and tracks the best 20 candidates until exhausted
 - **Multi-Timeframe Analysis**: Confluence across 5m, 15m, 1h, 4h, 1d timeframes with 500 candles each
+
+### Advanced Market Microstructure (NEW)
+- **Order Flow Imbalance (OFI)**: Detects buying/selling pressure from order book changes
+- **VPIN Toxicity Detection**: Volume-Synchronized Probability of Informed Trading
+- **Iceberg Order Detection**: Identifies hidden institutional orders
+- **Market Maker Bias Analysis**: Tracks smart money positioning
+- **Liquidity Scoring**: Real-time liquidity assessment for optimal execution
+
+### Institutional-Grade Risk Management (NEW)
+- **Dynamic Kelly Criterion**: Volatility-adjusted position sizing
+- **Value at Risk (VaR)**: 95% and 99% confidence intervals
+- **Expected Shortfall (ES)**: Tail risk measurement
+- **Correlation Matrix**: Portfolio-wide risk assessment
+- **Circuit Breakers**: Automatic trading halt on max drawdown or daily loss limits
+- **Monte Carlo Simulations**: Drawdown probability forecasting
+
+### Smart Order Execution (NEW)
+- **TWAP Algorithm**: Time-Weighted Average Price execution
+- **VWAP Algorithm**: Volume-Weighted Average Price execution
+- **Iceberg Orders**: Hidden order execution for large positions
+- **Slippage Prediction**: ML-based slippage estimation and minimization
+- **Adaptive Execution**: Strategy selection based on market conditions
+
+### Market Regime Detection (NEW)
+- **Hidden Markov Models (HMM)**: State transition detection
+- **GARCH Volatility Clustering**: Volatility regime identification
+- **Trend vs Range Classification**: Automatic strategy adaptation
+- **Momentum vs Mean-Reversion**: Dynamic mode switching
+
+### Advanced Mathematical Analysis (NEW)
+- **Hurst Exponent**: Trend persistence measurement (0-1 scale)
+- **Fractal Support/Resistance**: Automatic S/R level detection
+- **Wavelet Denoising**: Noise filtering for cleaner signals
+- **Shannon Entropy**: Market efficiency measurement
+- **Information Ratio**: Signal quality assessment
+
+### Alternative Data Integration (NEW)
+- **Fear & Greed Index**: Market sentiment from alternative.me API
+- **Funding Rate Analysis**: Perpetual futures positioning signals
+- **Open Interest Tracking**: Derivatives market analysis
+- **Whale Activity Monitoring**: Large transaction tracking
+
+### AI/ML Learning System
 - **Dual Learning Engines**: Both trading bot and Telegram learn from your trades
-- **Risk Management**: Kelly Criterion position sizing, max drawdown controls
-- **Order Book Analysis**: Optimal entry/exit price detection
+- **Performance Tracking**: By symbol, strategy, and time of day
+- **Adaptive Confidence**: Thresholds adjust based on historical win rates
+- **Anomaly Detection**: Filters unusual market conditions
+
+### Additional Features
 - **Telegram Alerts with Learning**: Adapts to your trading preferences and patterns
 - **Paper/Live Modes**: Safe testing before live trading
+- **Production Gunicorn Server**: Single worker to prevent duplicate bot instances
 
 ## Required Secrets
 - `KRAKEN_API_KEY`: Your Kraken API key
@@ -74,6 +134,13 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- FULL INTEGRATION: All 6 institutional modules now wired into runtime (February 2026)
+  - Advanced Risk Engine: Kelly sizing + circuit breakers in execute_trade/scan_markets
+  - Smart Execution: Strategy selection (TWAP/VWAP/market) based on liquidity/volatility
+  - Microstructure: Order flow imbalance (OFI) integrated into signal scoring
+  - Alternative Data: Fear & Greed fetched every 30min, affects circuit breaker
+  - Regime Detector: HMM/GARCH analysis influences signal scoring
+  - Advanced Math: Hurst exponent + wavelet denoising in signal analysis
 - Added production Gunicorn WSGI server (February 2026)
 - Implemented Los Angeles timezone (America/Los_Angeles) for all timestamps (February 2026)
 - Added interactive dashboard with bot toggle on/off switch (February 2026)

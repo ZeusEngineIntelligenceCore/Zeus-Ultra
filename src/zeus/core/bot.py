@@ -23,6 +23,10 @@ from ..strategies.signal_generator import SignalGenerator, TradingSignal, Strate
 from ..strategies.risk_manager import RiskManager, RiskConfig
 from ..alerts.telegram_bot import TelegramAlerts, AlertConfig
 from ..ml.learning_engine import TradingLearningEngine, TradeOutcome
+from ..risk.advanced_risk import AdvancedRiskEngine
+from ..data.alternative_data import AlternativeDataAggregator
+from ..execution.smart_execution import SmartExecutionEngine
+from ..indicators.microstructure import MicrostructureAnalyzer
 from .state import StateManager, TradeRecord
 
 logging.basicConfig(
@@ -60,6 +64,10 @@ class ZeusBot:
             alert_config
         )
         self.ml_engine = TradingLearningEngine()
+        self.advanced_risk = AdvancedRiskEngine()
+        self.alt_data = AlternativeDataAggregator()
+        self.smart_exec = SmartExecutionEngine()
+        self.microstructure = MicrostructureAnalyzer()
         self.mode = mode
         self.running = False
         self._pairs_cache: List[str] = []
@@ -73,6 +81,7 @@ class ZeusBot:
         self._priority_last_refresh = 0
         self._priority_refresh_interval = 900
         self._last_priority_scan = 0
+        self._last_alt_data_update = 0
 
     async def start(self) -> bool:
         logger.info(f"Starting Zeus Bot in {self.mode} mode...")
@@ -216,6 +225,25 @@ class ZeusBot:
     async def scan_markets(self) -> List[Dict[str, Any]]:
         await self.state.set_status("SCANNING")
         logger.info(f"Full market scan: {len(self._pairs_cache)} pairs (all timeframes)...")
+        if time.time() - self._last_alt_data_update > 1800:
+            try:
+                fg_data = await self.alt_data.update_fear_greed()
+                if fg_data:
+                    logger.info(f"Fear & Greed: {fg_data.value} ({fg_data.classification})")
+                self._last_alt_data_update = time.time()
+            except Exception as e:
+                logger.debug(f"Alt data update error: {e}")
+        portfolio_value = self.state.state.equity
+        positions = [
+            {"symbol": t.symbol, "size": t.size, "entry_price": t.entry_price, 
+             "current_price": t.entry_price}
+            for t in self.state.get_open_trades()
+        ]
+        if portfolio_value > 0:
+            port_risk = self.advanced_risk.assess_portfolio_risk(positions, portfolio_value)
+            if port_risk.circuit_breaker_active:
+                logger.warning("CIRCUIT BREAKER: Trading halted due to risk limits")
+                return []
         if time.time() - self._last_pair_refresh > 3600:
             await self._refresh_pairs()
         candidates = []
@@ -331,6 +359,21 @@ class ZeusBot:
         if not can_trade:
             logger.warning(f"Risk check failed: {reasons}")
             return None
+        current_positions = [
+            {"symbol": t.symbol, "size": t.size, "entry_price": t.entry_price, 
+             "current_price": t.entry_price}
+            for t in self.state.get_open_trades()
+        ]
+        portfolio_value = self.state.state.equity
+        adv_risk = self.advanced_risk.assess_trade_risk(
+            signal.symbol, 1.0, signal.entry_price, signal.stop_loss,
+            signal.take_profit, portfolio_value, current_positions
+        )
+        if not adv_risk.approved:
+            logger.warning(f"Advanced risk rejected: {adv_risk.rejection_reasons}")
+            return None
+        if adv_risk.warnings:
+            logger.info(f"Risk warnings: {adv_risk.warnings}")
         size = self.risk_manager.calculate_optimal_size(
             signal.entry_price,
             signal.stop_loss,
@@ -339,6 +382,8 @@ class ZeusBot:
         if size <= 0:
             logger.warning("Position size too small")
             return None
+        if adv_risk.kelly_size > 0:
+            size = min(size, adv_risk.kelly_size)
         max_size = self.state.state.config.per_trade_amount / signal.entry_price
         size = min(size, max_size)
         
@@ -351,6 +396,13 @@ class ZeusBot:
         if self.mode == "LIVE":
             try:
                 order_book = await self.exchange.analyze_order_book(signal.symbol)
+                exec_strategy = self.smart_exec.select_strategy(
+                    order_value=order_value,
+                    market_liquidity=order_book.get("total_bid_volume", 1000) if order_book else 1000,
+                    volatility=signal.atr / signal.entry_price if signal.atr > 0 else 0.02,
+                    urgency=signal.confidence
+                )
+                logger.info(f"Smart execution strategy: {exec_strategy}")
                 optimal_price = signal.entry_price
                 if order_book and signal.side == OrderSide.BUY:
                     best_bid = order_book.get("best_bid", signal.entry_price)

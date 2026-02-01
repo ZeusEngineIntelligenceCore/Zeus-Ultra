@@ -14,6 +14,9 @@ import math
 
 from ..indicators.math_kernel import MathKernel
 from ..indicators.prebreakout_detector import PreBreakoutDetector, MultiTimeframeAnalyzer
+from ..indicators.advanced_math import AdvancedMathAnalyzer
+from ..indicators.microstructure import MicrostructureAnalyzer, OrderBookSnapshot
+from ..ml.regime_detector import RegimeDetector
 from ..exchanges.base import OHLCV, OrderSide
 
 
@@ -88,6 +91,9 @@ class SignalGenerator:
         self.math = MathKernel()
         self.prebreakout = PreBreakoutDetector()
         self.mtf_analyzer = MultiTimeframeAnalyzer()
+        self.advanced_math = AdvancedMathAnalyzer()
+        self.regime_detector = RegimeDetector()
+        self.microstructure = MicrostructureAnalyzer()
 
     async def generate_signal(
         self,
@@ -108,8 +114,12 @@ class SignalGenerator:
         momentum = self._analyze_momentum(indicators)
         volatility = self._analyze_volatility(indicators, high, low, close)
         volume_analysis = self._analyze_volume(volume, indicators)
+        advanced_analysis = self._analyze_advanced(high, low, close, volume)
+        regime_analysis = self._analyze_regime(close)
+        microstructure_analysis = self._analyze_microstructure(order_book_analysis) if order_book_analysis else None
         signal_score, signal_reasons = self._calculate_signal_score(
-            trend, momentum, volatility, volume_analysis, prebreakout, mode
+            trend, momentum, volatility, volume_analysis, prebreakout, mode,
+            advanced_analysis, regime_analysis, microstructure_analysis
         )
         if signal_score < self.config.min_confidence:
             return None
@@ -484,6 +494,68 @@ class SignalGenerator:
             "obv_trend": obv_trend
         }
 
+    def _analyze_advanced(self, high: List[float], low: List[float], 
+                         close: List[float], volume: List[float]) -> Dict[str, Any]:
+        try:
+            analysis = self.advanced_math.analyze(high, low, close, volume)
+            return {
+                "hurst": analysis.hurst_exponent,
+                "trend_persistence": analysis.trend_persistence,
+                "nearest_support": analysis.nearest_support,
+                "nearest_resistance": analysis.nearest_resistance,
+                "entropy": analysis.market_entropy,
+                "efficiency": analysis.market_efficiency,
+                "denoised_trend": analysis.denoised_trend,
+                "score": analysis.overall_score,
+                "signals": analysis.signals
+            }
+        except Exception:
+            return {"score": 50, "signals": [], "hurst": 0.5}
+    
+    def _analyze_regime(self, close: List[float]) -> Dict[str, Any]:
+        try:
+            for price in close[-50:]:
+                self.regime_detector.update(price)
+            state = self.regime_detector.detect_regime()
+            return {
+                "regime": state.regime.value,
+                "trading_mode": state.trading_mode.value,
+                "confidence": state.confidence,
+                "volatility_state": state.volatility_state,
+                "trend_strength": state.trend_strength,
+                "position_size_mult": state.recommended_position_size_mult,
+                "stop_mult": state.recommended_stop_mult,
+                "signals": state.signals
+            }
+        except Exception:
+            return {"regime": "ranging", "trading_mode": "defensive", "confidence": 0.5, "signals": []}
+    
+    def _analyze_microstructure(self, order_book: Dict) -> Dict:
+        if not order_book:
+            return {}
+        bid_volume = order_book.get("total_bid_volume", 0)
+        ask_volume = order_book.get("total_ask_volume", 0)
+        spread_pct = order_book.get("spread_pct", 0)
+        order_imbalance = (bid_volume - ask_volume) / (bid_volume + ask_volume) if (bid_volume + ask_volume) > 0 else 0
+        liquidity_score = min(100, (bid_volume + ask_volume) / 1000 * 10)
+        signals = []
+        if order_imbalance > 0.3:
+            signals.append("Strong buy pressure (OFI)")
+        elif order_imbalance < -0.3:
+            signals.append("Strong sell pressure (OFI)")
+        if spread_pct < 0.1:
+            signals.append("Tight spread (high liquidity)")
+        elif spread_pct > 0.5:
+            signals.append("Wide spread (low liquidity)")
+        return {
+            "order_imbalance": order_imbalance,
+            "liquidity_score": liquidity_score,
+            "spread_pct": spread_pct,
+            "bid_volume": bid_volume,
+            "ask_volume": ask_volume,
+            "signals": signals
+        }
+
     def _calculate_signal_score(
         self,
         trend: Dict,
@@ -491,7 +563,10 @@ class SignalGenerator:
         volatility: Dict,
         volume: Dict,
         prebreakout: Dict,
-        mode: StrategyMode
+        mode: StrategyMode,
+        advanced: Optional[Dict] = None,
+        regime: Optional[Dict] = None,
+        microstructure: Optional[Dict] = None
     ) -> tuple:
         trend_weight = 30
         momentum_weight = 1.2
@@ -539,6 +614,43 @@ class SignalGenerator:
         elif mode == StrategyMode.SWING:
             if trend_dir in ["STRONG_UP", "ULTRA_BULLISH", "STRONG_DOWN", "ULTRA_BEARISH"]:
                 base_score += 10
+        if advanced:
+            adv_score = advanced.get("score", 50)
+            base_score += (adv_score - 50) * 0.3
+            hurst = advanced.get("hurst", 0.5)
+            if hurst > 0.65:
+                base_score += 10
+            elif hurst < 0.35:
+                base_score -= 5
+            if advanced.get("denoised_trend") == "bullish":
+                base_score += 5
+            elif advanced.get("denoised_trend") == "bearish":
+                base_score -= 5
+        if regime:
+            regime_confidence = regime.get("confidence", 0.5)
+            trading_mode = regime.get("trading_mode", "defensive")
+            if trading_mode == "momentum" and trend_dir in ["STRONG_UP", "ULTRA_BULLISH"]:
+                base_score += 15 * regime_confidence
+            elif trading_mode == "mean_reversion" and momentum.get("score", 0) < -20:
+                base_score += 10 * regime_confidence
+            elif trading_mode == "breakout" and prebreakout_score > 70:
+                base_score += 20 * regime_confidence
+            elif trading_mode == "defensive":
+                base_score *= 0.85
+        if microstructure:
+            ofi = microstructure.get("order_imbalance", 0)
+            liquidity = microstructure.get("liquidity_score", 50)
+            spread = microstructure.get("spread_pct", 0.5)
+            if ofi > 0.3 and trend_dir in ["STRONG_UP", "ULTRA_BULLISH"]:
+                base_score += 15
+            elif ofi < -0.3 and trend_dir in ["STRONG_DOWN", "ULTRA_BEARISH"]:
+                base_score -= 15
+            if liquidity > 70:
+                base_score += 5
+            elif liquidity < 30:
+                base_score -= 10
+            if spread > 0.5:
+                base_score -= 5
         reasons = []
         reasons.extend(momentum.get("signals", []))
         reasons.extend(volatility.get("signals", []))
@@ -548,6 +660,12 @@ class SignalGenerator:
             reasons.append(f"Stage: {prebreakout.get('stage')} ({prebreakout_score:.1f}%)")
         if confluence >= 3:
             reasons.append(f"Multi-Indicator Confluence: {confluence}")
+        if advanced:
+            reasons.extend(advanced.get("signals", [])[:2])
+        if regime:
+            reasons.extend(regime.get("signals", [])[:2])
+        if microstructure:
+            reasons.extend(microstructure.get("signals", [])[:2])
         return base_score, reasons
 
     def _determine_signal_type(self, score: float, side: OrderSide) -> SignalType:
