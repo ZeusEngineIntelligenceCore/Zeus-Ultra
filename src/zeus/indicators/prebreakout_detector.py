@@ -264,7 +264,8 @@ class PreBreakoutDetector:
             "impulse", "liquidity", "squeeze"
         ]
         feats = {k: round(v, 4) for k, v in zip(names, tasks)}
-        raw_score = sum(feats[k] * self.cfg.weights[k] for k in names)
+        weights = self.cfg.weights or {}
+        raw_score = sum(feats[k] * weights.get(k, 0.0) for k in names)
         prebreakout_score = round(clip01(raw_score) * 100.0, 2)
         breakout_prob = round(math.tanh(prebreakout_score / 85.0), 4)
         enhanced_prob = round(1.0 - math.exp(-prebreakout_score / 85.0), 4)
