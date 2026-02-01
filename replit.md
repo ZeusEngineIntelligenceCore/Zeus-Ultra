@@ -71,6 +71,9 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Fixed limit order fill verification with 10-second polling and market fallback (February 2026)
+- Increased candle depth to 500 across all timeframes for deeper market analysis (February 2026)
+- Added enforce_trade_only_alerts() to guarantee only trade open/close notifications (February 2026)
 - Added Telegram alert batching - non-urgent alerts held for 30 min summaries (February 2026)
 - Enhanced signal formulas with multi-confluence scoring and advanced trend analysis (February 2026)
 - Upgraded prebreakout detector with momentum boost and volume confirmation (February 2026)
