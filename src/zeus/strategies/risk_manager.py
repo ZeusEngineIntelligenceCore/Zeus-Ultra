@@ -28,6 +28,7 @@ class RiskConfig:
     max_position_size_pct: float = 0.90
     max_daily_loss_pct: float = 1.0
     max_drawdown_pct: float = 1.0
+    max_realized_loss_usd: float = 20.0
     kelly_fraction: float = 0.25
     min_win_rate: float = 0.40
     trailing_stop_activation: float = 0.015
@@ -142,17 +143,13 @@ class RiskManager:
         reasons = []
         if self.portfolio.position_count >= self.config.max_open_positions:
             reasons.append(f"Max positions reached ({self.config.max_open_positions})")
-        if self.portfolio.drawdown >= self.config.max_drawdown_pct:
-            reasons.append(f"Max drawdown exceeded ({self.portfolio.drawdown:.1%})")
-        daily_loss_pct = abs(min(0, self.portfolio.stats.daily_pnl)) / self.portfolio.equity if self.portfolio.equity > 0 else 0
-        if daily_loss_pct >= self.config.max_daily_loss_pct:
-            reasons.append(f"Daily loss limit reached ({daily_loss_pct:.1%})")
+        realized_loss = abs(min(0, self.portfolio.stats.total_loss))
+        if realized_loss >= self.config.max_realized_loss_usd:
+            reasons.append(f"Max realized loss reached (${realized_loss:.2f} of ${self.config.max_realized_loss_usd:.2f})")
         if self.portfolio.exposure_pct >= self.config.max_portfolio_risk * 10:
             reasons.append(f"Portfolio exposure too high ({self.portfolio.exposure_pct:.1%})")
         if symbol in self.portfolio.positions:
             reasons.append(f"Already have position in {symbol}")
-        if self.portfolio.stats.consecutive_losses >= 5:
-            reasons.append("Consecutive loss limit reached (5)")
         return len(reasons) == 0, reasons
 
     def calculate_position_size(
