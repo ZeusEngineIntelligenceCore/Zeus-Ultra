@@ -134,6 +134,11 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Fixed holdings persistence: Holdings now saved to and loaded from state file correctly (February 2026)
+- Fixed holdings sync: Only creates positions when sell orders are successfully placed (February 2026)
+- Added open orders sync: Fetches existing Kraken orders before placing new ones to avoid duplicate orders (February 2026)
+- Added ghost position detection: Removes positions with no tokens or failed sell order attempts (February 2026)
+- Added robust error handling for locked/staked tokens that can't be sold (February 2026)
 - Expanded to 30 KPIs for pre-breakout detection (+7 new: Williams %R, Stoch RSI, MFI, OBV Trend, Pivot Distance, Fibonacci Levels, Parabolic SAR) (February 2026)
 - Manual order protection: Bot now NEVER auto-closes manually placed orders (February 2026)
 - FULL INTEGRATION: All 6 institutional modules now wired into runtime (February 2026)

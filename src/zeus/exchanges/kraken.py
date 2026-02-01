@@ -267,6 +267,7 @@ class KrakenExchange(ExchangeBase):
             data["price"] = str(price)
         if params:
             data.update(params)
+        logger.debug(f"AddOrder request: {data}")
         result = await self._private_request("/0/private/AddOrder", data)
         if not result:
             return None
@@ -319,7 +320,9 @@ class KrakenExchange(ExchangeBase):
     async def fetch_open_orders(self, symbol: Optional[str] = None) -> List[Order]:
         result = await self._private_request("/0/private/OpenOrders")
         if not result:
+            logger.debug("No open orders result from Kraken")
             return []
+        logger.debug(f"Kraken OpenOrders raw: {list(result.get('open', {}).keys())[:5]}")
         orders = []
         for oid, o in result.get("open", {}).items():
             descr = o.get("descr", {})
