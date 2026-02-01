@@ -44,6 +44,8 @@ class TradeRecord:
     fakeout_signals: int = 0
     price_history: List[float] = field(default_factory=list)
     volume_at_entry: float = 0.0
+    is_manual: bool = False
+    protected: bool = False
 
 
 @dataclass
