@@ -5,12 +5,13 @@ Zeus is a professional-grade autonomous cryptocurrency trading bot designed for 
 
 ## Project Structure
 ```
-├── main.py                    # Main entry point with Flask routes
+├── main.py                    # Main entry point with Gunicorn production server
 ├── app.py                     # Flask app configuration with database
 ├── models.py                  # Database models (User, OAuth)
 ├── replit_auth.py             # Replit Auth integration
 ├── templates/                 # HTML templates
-│   ├── index.html            # Main landing/dashboard page
+│   ├── index.html            # Main landing page
+│   ├── dashboard.html        # Interactive trading dashboard with toggle
 │   └── 403.html              # Error page
 ├── src/zeus/
 │   ├── core/
@@ -73,6 +74,12 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Added production Gunicorn WSGI server (February 2026)
+- Implemented Los Angeles timezone (America/Los_Angeles) for all timestamps (February 2026)
+- Added interactive dashboard with bot toggle on/off switch (February 2026)
+- Immediate sell order placement when buy orders fill (February 2026)
+- Real-time dashboard with active trades and top candidates panels (February 2026)
+- Sell order monitoring and dynamic adjustment based on market conditions (February 2026)
 - Expanded to 40+ technical indicators in MathKernel (February 2026)
 - Enhanced PreBreakout detector with 23 KPIs for precision scoring (February 2026)
 - Added Top-20 priority candidate focus system (February 2026)

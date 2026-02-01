@@ -483,23 +483,10 @@ class ZeusBot:
                     try:
                         order_status = await self.exchange.fetch_order(trade.sell_order_id, trade.symbol)
                         if order_status and order_status.status == OrderStatus.FILLED:
+                            trade.sell_order_id = None
                             logger.info(f"{trade.symbol} sell order filled at TP - closing position")
                             await self._close_position(trade_id, trade.take_profit, "Take Profit Order Filled")
                             continue
-                        new_tp = current_price * 1.035
-                        if new_tp > trade.take_profit * 1.02:
-                            await self.exchange.cancel_order(trade.sell_order_id, trade.symbol)
-                            sell_order = await self.exchange.create_order(
-                                trade.symbol,
-                                OrderType.LIMIT,
-                                OrderSide.SELL,
-                                trade.size,
-                                price=new_tp
-                            )
-                            if sell_order:
-                                trade.sell_order_id = sell_order.id
-                                trade.take_profit = new_tp
-                                logger.info(f"{trade.symbol} sell order adjusted higher: ${new_tp:.6f}")
                     except Exception as e:
                         logger.debug(f"Sell order check error: {e}")
                 if trade.side == "buy":
@@ -521,6 +508,24 @@ class ZeusBot:
                             logger.info(f"{trade.symbol} BREAKOUT CONFIRMED at ${current_price:.6f} (+{trade.breakout_strength:.1%})")
                         
                         logger.info(f"{trade.symbol} new peak: ${current_price:.6f} (peak #{trade.peak_count})")
+                        if trade.sell_order_id and self.mode == "LIVE" and trade.peak_count % 5 == 0:
+                            try:
+                                new_tp = current_price * 1.035
+                                if new_tp > trade.take_profit * 1.05:
+                                    await self.exchange.cancel_order(trade.sell_order_id, trade.symbol)
+                                    sell_order = await self.exchange.create_order(
+                                        trade.symbol,
+                                        OrderType.LIMIT,
+                                        OrderSide.SELL,
+                                        trade.size,
+                                        price=new_tp
+                                    )
+                                    if sell_order:
+                                        trade.sell_order_id = sell_order.id
+                                        trade.take_profit = new_tp
+                                        logger.info(f"{trade.symbol} sell order raised: ${new_tp:.6f}")
+                            except Exception as e:
+                                logger.debug(f"Sell order adjustment error: {e}")
                     
                     profit_from_entry = (current_price - trade.entry_price) / trade.entry_price
                     drop_from_peak = (trade.peak_price - current_price) / trade.peak_price if trade.peak_price > 0 else 0
@@ -626,7 +631,7 @@ class ZeusBot:
             self.risk_manager.record_trade(closed_trade.pnl, closed_trade.pnl >= 0)
             pnl_pct = (exit_price - closed_trade.entry_price) / closed_trade.entry_price * 100
             entry_time = datetime.fromisoformat(closed_trade.entry_time.replace('Z', '+00:00'))
-            exit_time = datetime.now(timezone.utc)
+            exit_time = datetime.now(LA_TZ)
             duration = int((exit_time - entry_time).total_seconds())
             indicators_snapshot = {}
             try:

@@ -13,10 +13,12 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import logging
+import pytz
 
 from ..exchanges.base import Position, OrderSide
 
 logger = logging.getLogger("Zeus.State")
+LA_TZ = pytz.timezone('America/Los_Angeles')
 
 
 @dataclass
@@ -123,7 +125,7 @@ class StateManager:
                     "losses": self.state.losses,
                     "active_trades": {k: asdict(v) for k, v in self.state.active_trades.items()},
                     "trade_history": [asdict(t) for t in self.state.trade_history[-100:]],
-                    "last_updated": datetime.now(timezone.utc).isoformat()
+                    "last_updated": datetime.now(LA_TZ).isoformat()
                 }
                 with open(self.state_file, 'w') as f:
                     json.dump(data, f, indent=2)
@@ -169,7 +171,7 @@ class StateManager:
                 return None
             trade = self.state.active_trades[trade_id]
             trade.exit_price = exit_price
-            trade.exit_time = datetime.now(timezone.utc).isoformat()
+            trade.exit_time = datetime.now(LA_TZ).isoformat()
             trade.exit_reason = reason
             trade.status = "closed"
             if trade.side == "buy":
@@ -191,7 +193,7 @@ class StateManager:
         async with self.lock:
             self.state.status = status
             if status == "SCANNING":
-                self.state.last_scan = datetime.now(timezone.utc).isoformat()
+                self.state.last_scan = datetime.now(LA_TZ).isoformat()
 
     async def increment_errors(self) -> None:
         async with self.lock:
