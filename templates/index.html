@@ -160,6 +160,11 @@
         </section>
 
         {% if user and user.is_authenticated %}
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <a href="/dashboard" class="btn btn-primary" style="padding: 1rem 2rem; font-size: 1.1rem;">
+                Open Trading Dashboard
+            </a>
+        </div>
         <div class="dashboard">
             <div class="card">
                 <h3>Bot Status</h3>
