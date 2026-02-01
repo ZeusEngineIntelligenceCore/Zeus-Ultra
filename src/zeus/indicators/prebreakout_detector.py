@@ -69,32 +69,35 @@ def linear_slope(seq: List[float]) -> float:
 @dataclass
 class BreakoutConfig:
     rsi_period: int = 14
-    spike_cap: float = 0.25
-    pressure_cap: float = 1.8
-    impulse_cap: float = 6.0
-    liquidity_scale: float = 0.6
-    break_pre: float = 70.0
-    break_out: float = 85.0
-    ladder_tiers: int = 3
-    ladder_step_atr: float = 0.6
-    ladder_sell_step: float = 0.8
+    spike_cap: float = 0.20
+    pressure_cap: float = 1.5
+    impulse_cap: float = 5.0
+    liquidity_scale: float = 0.5
+    break_pre: float = 65.0
+    break_out: float = 82.0
+    ladder_tiers: int = 4
+    ladder_step_atr: float = 0.5
+    ladder_sell_step: float = 0.7
+    min_confluence_score: float = 0.6
+    momentum_boost: float = 1.3
+    volume_confirmation_mult: float = 1.5
     weights: Optional[Dict[str, float]] = None
 
     def __post_init__(self):
         if self.weights is None:
             self.weights = {
-                "rsi": 0.12,
-                "momentum_cf": 0.10,
-                "vol_spike": 0.10,
-                "pressure": 0.12,
-                "microtrend": 0.08,
-                "accel": 0.06,
-                "anomaly_vol": 0.05,
-                "candle_proj": 0.07,
-                "consistency": 0.08,
-                "impulse": 0.10,
-                "liquidity": 0.06,
-                "squeeze": 0.06
+                "rsi": 0.14,
+                "momentum_cf": 0.13,
+                "vol_spike": 0.11,
+                "pressure": 0.13,
+                "microtrend": 0.10,
+                "accel": 0.07,
+                "anomaly_vol": 0.06,
+                "candle_proj": 0.06,
+                "consistency": 0.06,
+                "impulse": 0.08,
+                "liquidity": 0.03,
+                "squeeze": 0.03
             }
 
 
@@ -107,14 +110,34 @@ class PreBreakoutDetector:
         if len(prices) < 4:
             return 0.5
         rsi = self.math.rsi(prices, self.cfg.rsi_period)
+        if rsi < 25:
+            return clip01(0.9 + (25 - rsi) / 50)
+        elif rsi < 35:
+            return clip01(0.7 + (35 - rsi) / 50)
+        elif rsi > 75:
+            return clip01(0.3 - (rsi - 75) / 50)
+        elif rsi > 65:
+            return clip01(0.5 - (rsi - 65) / 50)
         normalized = (rsi - 30) / 40
         return clip01(normalized)
 
     async def momentum_cf(self, prices: List[float]) -> float:
         if len(prices) < 4:
             return 0.5
-        slope = linear_slope(prices[-12:])
-        return clip01(tanh01(slope * 6))
+        slope_short = linear_slope(prices[-8:])
+        slope_mid = linear_slope(prices[-15:])
+        slope_long = linear_slope(prices[-25:]) if len(prices) >= 25 else slope_mid
+        if slope_short > 0 and slope_mid > 0 and slope_long > 0:
+            alignment_bonus = 0.15
+        elif slope_short < 0 and slope_mid < 0 and slope_long < 0:
+            alignment_bonus = 0.15
+        else:
+            alignment_bonus = 0.0
+        combined_slope = slope_short * 0.5 + slope_mid * 0.3 + slope_long * 0.2
+        acceleration = slope_short - slope_mid
+        accel_factor = clip01(tanh01(acceleration * 10))
+        base = clip01(tanh01(combined_slope * 8))
+        return clip01(base * 0.7 + accel_factor * 0.15 + alignment_bonus)
 
     async def vol_spike(self, prices: List[float]) -> float:
         if len(prices) < 4:
@@ -131,8 +154,13 @@ class PreBreakoutDetector:
         last = rets[-1] if rets else 0.0
         med = sorted(vols)[len(vols) // 2] if vols else 1e-9
         vol_ratio = safe_mean(vols[-3:]) / (med or 1e-9)
-        raw = abs(last) * vol_ratio
-        return clip01(raw / self.cfg.pressure_cap)
+        vol_trend = safe_mean(vols[-5:]) / safe_mean(vols[-20:]) if len(vols) >= 20 else 1.0
+        price_momentum = safe_mean(rets[-3:]) if len(rets) >= 3 else last
+        base_pressure = abs(last) * vol_ratio
+        trend_factor = clip01(vol_trend / 2.0)
+        momentum_factor = clip01(tanh01(price_momentum * 15))
+        combined = base_pressure * 0.5 + trend_factor * 0.25 + momentum_factor * 0.25
+        return clip01(combined / self.cfg.pressure_cap * self.cfg.volume_confirmation_mult)
 
     async def microtrend(self, prices: List[float]) -> float:
         return clip01(tanh01(linear_slope(prices[-15:]) * 8))
@@ -225,13 +253,28 @@ class PreBreakoutDetector:
         return buy_ladder, sell_ladder, round(buy_anchor, 8), round(sell_anchor, 8)
 
     def determine_stage(self, score: float, feats: Dict[str, float]) -> str:
+        impulse = feats.get("impulse", 0.0)
+        pressure = feats.get("pressure", 0.0)
+        momentum = feats.get("momentum_cf", 0.0)
+        squeeze = feats.get("squeeze", 0.0)
+        vol_spike = feats.get("vol_spike", 0.0)
+        confluence_count = sum(1 for v in [impulse, pressure, momentum, squeeze] if v >= self.cfg.min_confluence_score)
         if score >= self.cfg.break_out:
-            if feats.get("impulse", 0.0) >= 0.8 or feats.get("pressure", 0.0) >= 0.7:
+            if impulse >= 0.75 or pressure >= 0.65 or confluence_count >= 3:
+                return "BREAKOUT"
+            elif vol_spike >= 0.7 and momentum >= 0.6:
                 return "BREAKOUT"
         if score >= self.cfg.break_pre:
-            return "PRE_BREAKOUT"
-        if score >= 50:
+            if confluence_count >= 2 or (squeeze >= 0.7 and momentum >= 0.5):
+                return "PRE_BREAKOUT"
+            elif score >= self.cfg.break_pre + 5:
+                return "PRE_BREAKOUT"
             return "ACCUMULATION"
+        if score >= 45:
+            if momentum >= 0.55 or squeeze >= 0.65:
+                return "ACCUMULATION"
+        if score >= 35:
+            return "BUILDING"
         return "NEUTRAL"
 
     async def analyze(self, symbol: str, high: List[float], low: List[float], 
@@ -266,9 +309,16 @@ class PreBreakoutDetector:
         feats = {k: round(v, 4) for k, v in zip(names, tasks)}
         weights = self.cfg.weights or {}
         raw_score = sum(feats[k] * weights.get(k, 0.0) for k in names)
+        high_value_signals = sum(1 for k in ["momentum_cf", "pressure", "impulse", "squeeze"] if feats[k] >= 0.65)
+        if high_value_signals >= 3:
+            raw_score *= self.cfg.momentum_boost
+        elif high_value_signals >= 2:
+            raw_score *= 1.0 + (self.cfg.momentum_boost - 1.0) * 0.5
+        if feats["vol_spike"] >= 0.7 and feats["momentum_cf"] >= 0.6:
+            raw_score *= 1.15
         prebreakout_score = round(clip01(raw_score) * 100.0, 2)
-        breakout_prob = round(math.tanh(prebreakout_score / 85.0), 4)
-        enhanced_prob = round(1.0 - math.exp(-prebreakout_score / 85.0), 4)
+        breakout_prob = round(math.tanh(prebreakout_score / 80.0), 4)
+        enhanced_prob = round(1.0 - math.exp(-prebreakout_score / 75.0), 4)
         stage = self.determine_stage(prebreakout_score, feats)
         buy_ladder, sell_ladder, buy_anchor, sell_anchor = self.build_price_ladders(close, feats)
         atr = self.calculate_atr(close)
