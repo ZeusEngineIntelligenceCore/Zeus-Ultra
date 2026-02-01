@@ -337,3 +337,212 @@ class TradingLearningEngine:
             return True, "Position held too long with negative P&L"
             
         return False, ""
+
+    def extract_trade_features(self, trade_data: Dict[str, Any]) -> Dict[str, float]:
+        """Extract advanced features from trade data for pattern recognition"""
+        features = {}
+        indicators = trade_data.get("indicators_at_entry", {})
+        features["rsi"] = indicators.get("rsi", 50) / 100
+        features["macd_signal"] = 1 if indicators.get("macd_histogram", 0) > 0 else 0
+        features["bb_position"] = indicators.get("bb_percent", 0.5)
+        features["volume_ratio"] = min(indicators.get("volume_ratio", 1), 3) / 3
+        features["atr_normalized"] = min(indicators.get("atr_pct", 2), 10) / 10
+        entry_hour = 12
+        try:
+            entry_time = trade_data.get("entry_time", "")
+            if entry_time:
+                entry_hour = datetime.fromisoformat(entry_time.replace('Z', '+00:00')).hour
+        except:
+            pass
+        features["hour_sin"] = math.sin(2 * math.pi * entry_hour / 24)
+        features["hour_cos"] = math.cos(2 * math.pi * entry_hour / 24)
+        features["prebreakout_score"] = trade_data.get("prebreakout_score", 50) / 100
+        features["confidence"] = trade_data.get("confidence", 75) / 100
+        duration = trade_data.get("duration_seconds", 3600)
+        features["duration_norm"] = min(duration / 86400, 1)
+        return features
+
+    def predict_trade_outcome(
+        self,
+        symbol: str,
+        confidence: float,
+        prebreakout_score: float,
+        indicators: Dict[str, float],
+        current_hour: int
+    ) -> Dict[str, Any]:
+        """Predict expected trade outcome using learned patterns"""
+        if len(self.state.trade_history_for_learning) < 10:
+            return {
+                "expected_pnl_pct": 0.0,
+                "win_probability": 0.5,
+                "confidence_level": "low",
+                "recommendation": "insufficient_data"
+            }
+        winning_trades = [t for t in self.state.trade_history_for_learning if t.get("pnl", 0) > 0]
+        losing_trades = [t for t in self.state.trade_history_for_learning if t.get("pnl", 0) <= 0]
+        win_rate = len(winning_trades) / len(self.state.trade_history_for_learning)
+        base_win_prob = win_rate
+        if symbol in self.state.symbol_profiles:
+            profile = self.state.symbol_profiles[symbol]
+            if profile.total_trades >= 3:
+                symbol_wr = profile.win_rate / 100
+                base_win_prob = (base_win_prob + symbol_wr) / 2
+        confidence_boost = (confidence - 70) / 100 * 0.15
+        prebreakout_boost = (prebreakout_score - 50) / 100 * 0.2
+        rsi = indicators.get("rsi", 50)
+        if 30 < rsi < 70:
+            rsi_boost = 0.05
+        elif rsi <= 30 or rsi >= 70:
+            rsi_boost = 0.08
+        else:
+            rsi_boost = 0
+        hour_perf = self.state.time_of_day_performance.get(current_hour, 0)
+        time_boost = hour_perf * 0.02 if hour_perf > 0 else hour_perf * 0.03
+        adjusted_win_prob = min(0.95, max(0.05, base_win_prob + confidence_boost + prebreakout_boost + rsi_boost + time_boost))
+        if winning_trades:
+            avg_win = statistics.mean([t.get("pnl_pct", 3) for t in winning_trades])
+        else:
+            avg_win = 3.0
+        if losing_trades:
+            avg_loss = statistics.mean([abs(t.get("pnl_pct", 2)) for t in losing_trades])
+        else:
+            avg_loss = 2.0
+        expected_pnl = (adjusted_win_prob * avg_win) - ((1 - adjusted_win_prob) * avg_loss)
+        if adjusted_win_prob >= 0.7 and expected_pnl > 1:
+            recommendation = "strong_buy"
+            confidence_level = "high"
+        elif adjusted_win_prob >= 0.55 and expected_pnl > 0:
+            recommendation = "buy"
+            confidence_level = "medium"
+        elif adjusted_win_prob < 0.4 or expected_pnl < -1:
+            recommendation = "avoid"
+            confidence_level = "high"
+        else:
+            recommendation = "neutral"
+            confidence_level = "low"
+        return {
+            "expected_pnl_pct": round(expected_pnl, 2),
+            "win_probability": round(adjusted_win_prob, 3),
+            "confidence_level": confidence_level,
+            "recommendation": recommendation,
+            "avg_win_pct": round(avg_win, 2),
+            "avg_loss_pct": round(avg_loss, 2),
+            "factors": {
+                "base_win_rate": round(win_rate, 3),
+                "confidence_boost": round(confidence_boost, 3),
+                "prebreakout_boost": round(prebreakout_boost, 3),
+                "time_boost": round(time_boost, 3)
+            }
+        }
+
+    def detect_pattern_clusters(self) -> Dict[str, Any]:
+        """Identify winning and losing pattern clusters from trade history"""
+        if len(self.state.trade_history_for_learning) < 20:
+            return {"status": "insufficient_data"}
+        winning_patterns = []
+        losing_patterns = []
+        for trade in self.state.trade_history_for_learning:
+            features = self.extract_trade_features(trade)
+            if trade.get("pnl", 0) > 0:
+                winning_patterns.append(features)
+            else:
+                losing_patterns.append(features)
+        if not winning_patterns or not losing_patterns:
+            return {"status": "insufficient_data"}
+        win_centroids = {}
+        lose_centroids = {}
+        feature_keys = winning_patterns[0].keys()
+        for key in feature_keys:
+            win_values = [p[key] for p in winning_patterns]
+            lose_values = [p[key] for p in losing_patterns]
+            win_centroids[key] = statistics.mean(win_values) if win_values else 0.5
+            lose_centroids[key] = statistics.mean(lose_values) if lose_values else 0.5
+        discriminating_features = []
+        for key in feature_keys:
+            diff = abs(win_centroids[key] - lose_centroids[key])
+            if diff > 0.1:
+                discriminating_features.append({
+                    "feature": key,
+                    "win_avg": round(win_centroids[key], 3),
+                    "lose_avg": round(lose_centroids[key], 3),
+                    "difference": round(diff, 3)
+                })
+        discriminating_features.sort(key=lambda x: x["difference"], reverse=True)
+        return {
+            "status": "success",
+            "winning_pattern_count": len(winning_patterns),
+            "losing_pattern_count": len(losing_patterns),
+            "win_centroids": {k: round(v, 3) for k, v in win_centroids.items()},
+            "lose_centroids": {k: round(v, 3) for k, v in lose_centroids.items()},
+            "top_discriminating_features": discriminating_features[:5]
+        }
+
+    def get_adaptive_confidence_threshold(self, symbol: str, market_volatility: float = 0.5) -> float:
+        """Calculate adaptive confidence threshold based on recent performance and market conditions"""
+        base_threshold = 70.0
+        recent_trades = self.state.trade_history_for_learning[-20:]
+        if recent_trades:
+            recent_wins = sum(1 for t in recent_trades if t.get("pnl", 0) > 0)
+            recent_wr = recent_wins / len(recent_trades)
+            if recent_wr > 0.65:
+                base_threshold -= 5
+            elif recent_wr < 0.4:
+                base_threshold += 8
+        if symbol in self.state.symbol_profiles:
+            profile = self.state.symbol_profiles[symbol]
+            if profile.win_rate > 70:
+                base_threshold -= 5
+            elif profile.win_rate < 40:
+                base_threshold += 10
+        if market_volatility > 0.7:
+            base_threshold += 5
+        elif market_volatility < 0.3:
+            base_threshold -= 3
+        return max(60, min(90, base_threshold))
+
+    def calculate_position_score(
+        self,
+        symbol: str,
+        confidence: float,
+        prebreakout_score: float,
+        rsi: float,
+        volume_ratio: float
+    ) -> Dict[str, Any]:
+        """Calculate comprehensive position score combining all ML factors"""
+        prediction = self.predict_trade_outcome(
+            symbol, confidence, prebreakout_score,
+            {"rsi": rsi}, datetime.now(timezone.utc).hour
+        )
+        base_score = confidence * 0.3 + prebreakout_score * 0.25
+        if 30 < rsi < 70:
+            rsi_score = 10
+        elif rsi <= 30:
+            rsi_score = 15
+        elif rsi >= 70:
+            rsi_score = 5
+        else:
+            rsi_score = 8
+        volume_score = min(volume_ratio * 5, 15)
+        ml_score = prediction["win_probability"] * 20
+        symbol_score = 0
+        if symbol in self.state.symbol_profiles:
+            profile = self.state.symbol_profiles[symbol]
+            if profile.win_rate > 60:
+                symbol_score = 10
+            elif profile.win_rate > 50:
+                symbol_score = 5
+            elif profile.win_rate < 40:
+                symbol_score = -10
+        total_score = base_score + rsi_score + volume_score + ml_score + symbol_score
+        return {
+            "total_score": round(total_score, 1),
+            "breakdown": {
+                "base": round(base_score, 1),
+                "rsi": rsi_score,
+                "volume": round(volume_score, 1),
+                "ml": round(ml_score, 1),
+                "symbol_history": symbol_score
+            },
+            "prediction": prediction,
+            "recommendation": "strong" if total_score >= 80 else "moderate" if total_score >= 60 else "weak"
+        }

@@ -15,8 +15,9 @@ from pathlib import Path
 import statistics
 
 try:
-    from telegram import Bot
+    from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.error import TelegramError
+    from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
@@ -223,7 +224,7 @@ class AlertConfig:
     send_signals: bool = False
     send_trades: bool = True
     send_portfolio_updates: bool = False
-    send_daily_summary: bool = False
+    send_daily_summary: bool = True
     send_bot_status: bool = False
     min_confidence_alert: float = 70.0
     alert_on_prebreakout: bool = False
@@ -232,12 +233,14 @@ class AlertConfig:
     quiet_hours_start: int = 0
     quiet_hours_end: int = 0
     batch_interval_minutes: int = 30
+    daily_report_hour: int = 20
+    weekly_report_day: int = 6
     
     def enforce_trade_only_alerts(self) -> None:
         """Enforce that only trade open/close alerts are sent."""
         self.send_signals = False
         self.send_portfolio_updates = False
-        self.send_daily_summary = False
+        self.send_daily_summary = True
         self.send_bot_status = False
         self.alert_on_prebreakout = False
 
@@ -255,6 +258,7 @@ class TelegramAlerts:
         self.chat_id = chat_id
         self.config = config or AlertConfig()
         self.bot: Optional[Bot] = None
+        self.app: Optional[Any] = None
         self._initialized = False
         self._message_queue: List[str] = []
         self._last_message_time: Optional[datetime] = None
@@ -267,6 +271,8 @@ class TelegramAlerts:
         self._error_count_reset_time: Optional[datetime] = None
         self._max_errors_per_hour = 5
         self.learning_engine = TelegramLearningEngine()
+        self._bot_ref = None
+        self._commands_registered = False
 
     async def initialize(self) -> bool:
         if not TELEGRAM_AVAILABLE:
@@ -598,3 +604,411 @@ class TelegramAlerts:
         if not reasons:
             return "• No specific signals"
         return "\n".join(f"• {r}" for r in reasons[:5])
+
+    def set_bot_reference(self, bot_instance) -> None:
+        self._bot_ref = bot_instance
+        logger.info("Telegram: Bot reference set for interactive commands")
+
+    def get_main_keyboard(self) -> 'InlineKeyboardMarkup':
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 Status", callback_data="cmd_status"),
+                InlineKeyboardButton("💼 Portfolio", callback_data="cmd_portfolio")
+            ],
+            [
+                InlineKeyboardButton("📈 Trades", callback_data="cmd_trades"),
+                InlineKeyboardButton("🎯 Candidates", callback_data="cmd_candidates")
+            ],
+            [
+                InlineKeyboardButton("📉 Performance", callback_data="cmd_performance"),
+                InlineKeyboardButton("⚙️ Settings", callback_data="cmd_settings")
+            ],
+            [
+                InlineKeyboardButton("❓ Help", callback_data="cmd_help"),
+                InlineKeyboardButton("🔄 Refresh", callback_data="cmd_refresh")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    async def handle_command_status(self) -> str:
+        if not self._bot_ref:
+            return "⚠️ Bot reference not available"
+        try:
+            bot = self._bot_ref
+            state = bot.state
+            mode = "🔴 LIVE" if bot.trading_mode == "LIVE" else "🟡 PAPER"
+            running = "🟢 Running" if state.is_running else "🔴 Stopped"
+            balance = bot.exchange.cached_balance if hasattr(bot.exchange, 'cached_balance') else None
+            balance_str = f"${balance:.2f}" if isinstance(balance, (int, float)) else "N/A"
+            positions = len(state.open_positions)
+            holdings = len(state.holdings) if hasattr(state, 'holdings') else 0
+            uptime = datetime.now(timezone.utc) - state.start_time if hasattr(state, 'start_time') and state.start_time else None
+            uptime_str = str(uptime).split('.')[0] if uptime else "N/A"
+            msg = f"""
+⚡ <b>ZEUS STATUS</b>
+
+<b>Mode:</b> {mode}
+<b>Status:</b> {running}
+<b>Balance:</b> {balance_str}
+<b>Open Positions:</b> {positions}
+<b>Holdings:</b> {holdings} tokens
+<b>Uptime:</b> {uptime_str}
+<b>Pairs Monitored:</b> {len(state.pairs_list) if hasattr(state, 'pairs_list') else 'N/A'}
+<b>Trading Cycle:</b> {state.trading_cycle}
+
+⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
+"""
+            return msg.strip()
+        except Exception as e:
+            logger.error(f"Status command error: {e}")
+            return f"⚠️ Error getting status: {str(e)[:100]}"
+
+    async def handle_command_portfolio(self) -> str:
+        if not self._bot_ref:
+            return "⚠️ Bot reference not available"
+        try:
+            bot = self._bot_ref
+            state = bot.state
+            holdings = state.holdings if hasattr(state, 'holdings') else {}
+            if not holdings:
+                return "💼 <b>Portfolio</b>\n\nNo holdings found."
+            lines = ["💼 <b>PORTFOLIO HOLDINGS</b>\n"]
+            total_value = 0.0
+            sorted_holdings = sorted(holdings.items(), key=lambda x: x[1], reverse=True)[:15]
+            for symbol, amount in sorted_holdings:
+                if amount > 0.0001:
+                    lines.append(f"• <b>{symbol}:</b> {amount:.4f}")
+            lines.append(f"\n<b>Total Holdings:</b> {len(holdings)} tokens")
+            lines.append(f"\n⏰ {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Portfolio command error: {e}")
+            return f"⚠️ Error getting portfolio: {str(e)[:100]}"
+
+    async def handle_command_trades(self) -> str:
+        if not self._bot_ref:
+            return "⚠️ Bot reference not available"
+        try:
+            bot = self._bot_ref
+            state = bot.state
+            positions = state.open_positions
+            if not positions:
+                return "📈 <b>Active Trades</b>\n\nNo open positions."
+            lines = ["📈 <b>ACTIVE TRADES</b>\n"]
+            for symbol, pos in list(positions.items())[:10]:
+                entry = pos.get('entry_price', 0)
+                current = pos.get('current_price', entry)
+                pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
+                emoji = "🟢" if pnl_pct >= 0 else "🔴"
+                lines.append(f"{emoji} <b>{symbol}:</b> {pnl_pct:+.2f}% @ ${entry:.6f}")
+            if len(positions) > 10:
+                lines.append(f"\n... and {len(positions) - 10} more")
+            lines.append(f"\n<b>Total Open:</b> {len(positions)} positions")
+            lines.append(f"\n⏰ {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Trades command error: {e}")
+            return f"⚠️ Error getting trades: {str(e)[:100]}"
+
+    async def handle_command_candidates(self) -> str:
+        if not self._bot_ref:
+            return "⚠️ Bot reference not available"
+        try:
+            bot = self._bot_ref
+            state = bot.state
+            candidates = state.top_candidates if hasattr(state, 'top_candidates') else []
+            if not candidates:
+                return "🎯 <b>Top Candidates</b>\n\nNo candidates identified yet."
+            lines = ["🎯 <b>TOP TRADING CANDIDATES</b>\n"]
+            for i, c in enumerate(candidates[:10], 1):
+                symbol = c.get('symbol', 'N/A')
+                score = c.get('score', 0)
+                confidence = c.get('confidence', 0)
+                lines.append(f"{i}. <b>{symbol}</b> - Score: {score:.1f} | Conf: {confidence:.0f}%")
+            lines.append(f"\n<b>Total Candidates:</b> {len(candidates)}")
+            lines.append(f"\n⏰ {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Candidates command error: {e}")
+            return f"⚠️ Error getting candidates: {str(e)[:100]}"
+
+    async def handle_command_performance(self) -> str:
+        if not self._bot_ref:
+            return "⚠️ Bot reference not available"
+        try:
+            bot = self._bot_ref
+            learning = self.learning_engine
+            ml = bot.ml_engine if hasattr(bot, 'ml_engine') else None
+            state = learning.state
+            lines = ["📉 <b>PERFORMANCE ANALYTICS</b>\n"]
+            lines.append(f"<b>Preferred Symbols:</b> {len(state.preferred_symbols)}")
+            lines.append(f"<b>Avoided Symbols:</b> {len(state.avoided_symbols)}")
+            lines.append(f"<b>Profit Threshold:</b> {state.min_profit_threshold}%")
+            lines.append(f"<b>Confidence Level:</b> {state.learned_confidence_threshold:.0f}%")
+            lines.append(f"<b>Alerts Sent:</b> {state.total_alerts_sent}")
+            if state.best_performing_strategies:
+                lines.append(f"\n<b>Best Strategies:</b>")
+                for strat in state.best_performing_strategies[:3]:
+                    lines.append(f"• {strat}")
+            if ml and hasattr(ml, 'state'):
+                ml_state = ml.state
+                profiles = len(ml_state.symbol_profiles)
+                cycles = ml_state.total_learning_cycles
+                lines.append(f"\n<b>ML Engine:</b>")
+                lines.append(f"• Symbol Profiles: {profiles}")
+                lines.append(f"• Learning Cycles: {cycles}")
+            lines.append(f"\n⏰ {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Performance command error: {e}")
+            return f"⚠️ Error getting performance: {str(e)[:100]}"
+
+    async def handle_command_settings(self) -> str:
+        try:
+            state = self.learning_engine.state
+            lines = ["⚙️ <b>ZEUS SETTINGS</b>\n"]
+            lines.append(f"<b>Alert Frequency:</b> {state.alert_frequency_preference}")
+            lines.append(f"<b>Batch Interval:</b> {self.config.batch_interval_minutes} min")
+            lines.append(f"<b>Min Profit Target:</b> {state.min_profit_threshold}%")
+            lines.append(f"<b>Max Loss Threshold:</b> {state.max_acceptable_loss}%")
+            lines.append(f"<b>Hold Duration Target:</b> {state.preferred_hold_duration_mins} min")
+            lines.append(f"<b>Confidence Threshold:</b> {state.learned_confidence_threshold:.0f}%")
+            lines.append(f"<b>Error Limit:</b> {self._max_errors_per_hour}/hour")
+            lines.append(f"\n<i>Settings adjust automatically based on your trading patterns.</i>")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"Settings command error: {e}")
+            return f"⚠️ Error getting settings: {str(e)[:100]}"
+
+    async def handle_command_help(self) -> str:
+        return """
+❓ <b>ZEUS COMMAND HELP</b>
+
+<b>Available Commands:</b>
+
+/status - View bot status & stats
+/portfolio - View token holdings
+/trades - View active trades
+/candidates - View top trading candidates
+/performance - View performance analytics
+/settings - View current settings
+/report - Get performance report
+/help - Show this help message
+
+<b>Quick Actions:</b>
+Use the buttons below messages for quick navigation.
+
+<b>Automatic Features:</b>
+• Daily performance summaries
+• Trade open/close alerts
+• Pre-breakout signal detection
+• ML-powered recommendations
+
+⚡ Zeus - Your Autonomous Trading Partner
+"""
+
+    async def handle_callback_query(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        query = update.callback_query
+        await query.answer()
+        callback_data = query.data
+        response = ""
+        if callback_data == "cmd_status":
+            response = await self.handle_command_status()
+        elif callback_data == "cmd_portfolio":
+            response = await self.handle_command_portfolio()
+        elif callback_data == "cmd_trades":
+            response = await self.handle_command_trades()
+        elif callback_data == "cmd_candidates":
+            response = await self.handle_command_candidates()
+        elif callback_data == "cmd_performance":
+            response = await self.handle_command_performance()
+        elif callback_data == "cmd_settings":
+            response = await self.handle_command_settings()
+        elif callback_data == "cmd_help":
+            response = await self.handle_command_help()
+        elif callback_data == "cmd_refresh":
+            response = "🔄 Refreshing..."
+            await query.edit_message_text(text=response, parse_mode="HTML")
+            response = await self.handle_command_status()
+        if response:
+            try:
+                await query.edit_message_text(
+                    text=response,
+                    parse_mode="HTML",
+                    reply_markup=self.get_main_keyboard()
+                )
+            except Exception as e:
+                logger.error(f"Callback error: {e}")
+
+    async def cmd_start(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        welcome = """
+⚡ <b>Welcome to ZEUS Trading Bot!</b>
+
+I'm your autonomous cryptocurrency trading assistant.
+
+Use the buttons below or type commands to interact with me.
+
+<b>Quick Start:</b>
+• /status - Check bot status
+• /help - View all commands
+"""
+        await update.message.reply_text(
+            welcome.strip(),
+            parse_mode="HTML",
+            reply_markup=self.get_main_keyboard()
+        )
+
+    async def cmd_status(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        response = await self.handle_command_status()
+        await update.message.reply_text(response, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+
+    async def cmd_portfolio(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        response = await self.handle_command_portfolio()
+        await update.message.reply_text(response, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+
+    async def cmd_trades(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        response = await self.handle_command_trades()
+        await update.message.reply_text(response, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+
+    async def cmd_candidates(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        response = await self.handle_command_candidates()
+        await update.message.reply_text(response, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+
+    async def cmd_performance(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        response = await self.handle_command_performance()
+        await update.message.reply_text(response, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+
+    async def cmd_settings(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        response = await self.handle_command_settings()
+        await update.message.reply_text(response, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+
+    async def cmd_help(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        response = await self.handle_command_help()
+        await update.message.reply_text(response, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+
+    async def cmd_report(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot reference not available")
+            return
+        try:
+            await self.send_daily_summary(
+                self._bot_ref.state.closed_trades_today if hasattr(self._bot_ref.state, 'closed_trades_today') else 0,
+                self._bot_ref.state.daily_pnl if hasattr(self._bot_ref.state, 'daily_pnl') else 0.0,
+                len(self._bot_ref.state.open_positions),
+                100,
+                await self.learning_engine.get_daily_insights() if hasattr(self.learning_engine, 'get_daily_insights') else {}
+            )
+            await update.message.reply_text("📊 Report sent!", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}")
+
+    async def start_command_listener(self) -> None:
+        if not TELEGRAM_AVAILABLE or self._commands_registered:
+            return
+        try:
+            self.app = Application.builder().token(self.token).build()
+            self.app.add_handler(CommandHandler("start", self.cmd_start))
+            self.app.add_handler(CommandHandler("status", self.cmd_status))
+            self.app.add_handler(CommandHandler("portfolio", self.cmd_portfolio))
+            self.app.add_handler(CommandHandler("trades", self.cmd_trades))
+            self.app.add_handler(CommandHandler("candidates", self.cmd_candidates))
+            self.app.add_handler(CommandHandler("performance", self.cmd_performance))
+            self.app.add_handler(CommandHandler("settings", self.cmd_settings))
+            self.app.add_handler(CommandHandler("help", self.cmd_help))
+            self.app.add_handler(CommandHandler("report", self.cmd_report))
+            self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
+            self._commands_registered = True
+            logger.info("Telegram command handlers registered")
+            await self.app.initialize()
+            await self.app.start()
+            await self.app.updater.start_polling(drop_pending_updates=True)
+            logger.info("Telegram command listener started")
+        except Exception as e:
+            logger.error(f"Failed to start command listener: {e}")
+
+    async def stop_command_listener(self) -> None:
+        if self.app:
+            try:
+                await self.app.updater.stop()
+                await self.app.stop()
+                await self.app.shutdown()
+                logger.info("Telegram command listener stopped")
+            except Exception as e:
+                logger.error(f"Error stopping command listener: {e}")
+
+    async def check_scheduled_reports(self) -> bool:
+        if not self.config.send_daily_summary or not self._bot_ref:
+            return False
+        try:
+            from pytz import timezone as tz
+            la_tz = tz('America/Los_Angeles')
+            now = datetime.now(la_tz)
+            current_hour = now.hour
+            current_minute = now.minute
+            current_weekday = now.weekday()
+            last_report_key = "last_daily_report"
+            last_report = getattr(self, '_last_daily_report', None)
+            if last_report and last_report.date() == now.date():
+                return False
+            if current_hour == self.config.daily_report_hour and current_minute < 15:
+                await self.send_scheduled_report(is_weekly=(current_weekday == self.config.weekly_report_day))
+                self._last_daily_report = now
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Scheduled report check error: {e}")
+            return False
+
+    async def send_scheduled_report(self, is_weekly: bool = False) -> bool:
+        if not self._bot_ref:
+            return False
+        try:
+            bot = self._bot_ref
+            state = bot.state
+            from pytz import timezone as tz
+            la_tz = tz('America/Los_Angeles')
+            now = datetime.now(la_tz)
+            report_type = "WEEKLY" if is_weekly else "DAILY"
+            lines = [f"📊 <b>ZEUS {report_type} REPORT</b>", f"📅 {now.strftime('%A, %B %d, %Y')}\n"]
+            open_positions = len(state.open_positions)
+            holdings_count = len(state.holdings) if hasattr(state, 'holdings') else 0
+            balance = bot.exchange.cached_balance if hasattr(bot.exchange, 'cached_balance') else None
+            balance_str = f"${balance:.2f}" if isinstance(balance, (int, float)) else "N/A"
+            lines.append(f"<b>Account Status:</b>")
+            lines.append(f"• Balance: {balance_str}")
+            lines.append(f"• Open Positions: {open_positions}")
+            lines.append(f"• Holdings: {holdings_count} tokens")
+            lines.append(f"• Trading Cycle: {state.trading_cycle}\n")
+            ml = bot.ml_engine if hasattr(bot, 'ml_engine') else None
+            if ml and hasattr(ml, 'state'):
+                ml_state = ml.state
+                if ml_state.trade_history_for_learning:
+                    recent = ml_state.trade_history_for_learning[-20:]
+                    wins = sum(1 for t in recent if t.get("pnl", 0) > 0)
+                    total_pnl = sum(t.get("pnl", 0) for t in recent)
+                    lines.append(f"<b>Recent Performance:</b>")
+                    lines.append(f"• Last 20 Trades Win Rate: {wins/len(recent)*100:.1f}%")
+                    lines.append(f"• Recent PnL: ${total_pnl:.2f}")
+                    lines.append(f"• Total Trades Tracked: {len(ml_state.trade_history_for_learning)}")
+                    lines.append(f"• Learning Cycles: {ml_state.total_learning_cycles}\n")
+            learning = self.learning_engine.state
+            if learning.preferred_symbols:
+                top_symbols = sorted(learning.preferred_symbols.items(), key=lambda x: x[1], reverse=True)[:5]
+                lines.append(f"<b>Top Performing Symbols:</b>")
+                for sym, score in top_symbols:
+                    lines.append(f"• {sym}: {score:.1f}")
+                lines.append("")
+            if learning.best_performing_strategies:
+                lines.append(f"<b>Best Strategies:</b>")
+                for strat in learning.best_performing_strategies[:3]:
+                    lines.append(f"• {strat}")
+                lines.append("")
+            lines.append(f"⏰ Report generated at {now.strftime('%I:%M %p')} PT")
+            lines.append("\n<i>Use /status for real-time updates</i>")
+            message = "\n".join(lines)
+            await self.send_message(message, alert_type="scheduled_report", urgent=True)
+            logger.info(f"Sent {report_type.lower()} report")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send scheduled report: {e}")
+            return False
