@@ -109,7 +109,14 @@ class BreakoutConfig:
                 "choppiness": 0.03,
                 "klinger_signal": 0.04,
                 "donchian_position": 0.04,
-                "cci_signal": 0.03
+                "cci_signal": 0.03,
+                "williams_r": 0.04,
+                "stoch_rsi": 0.04,
+                "mfi_signal": 0.03,
+                "obv_trend": 0.04,
+                "pivot_distance": 0.03,
+                "fibonacci_level": 0.03,
+                "parabolic_sar": 0.04
             }
 
 
@@ -385,6 +392,156 @@ class PreBreakoutDetector:
             return clip01(0.25 - (cci - 100) / 400)
         return clip01(0.5 + cci / 400)
 
+    async def williams_r_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        period = min(14, len(close) - 1)
+        if period < 5:
+            return 0.5
+        highest = max(high[-period:])
+        lowest = min(low[-period:])
+        if highest - lowest < 1e-9:
+            return 0.5
+        wr = ((highest - close[-1]) / (highest - lowest)) * -100
+        if wr < -80:
+            return clip01(0.85 + (abs(wr) - 80) / 80)
+        elif wr > -20:
+            return clip01(0.25 - (wr + 20) / 80)
+        return clip01(0.5 - wr / 200)
+
+    async def stoch_rsi_signal(self, close: List[float]) -> float:
+        rsi_vals = []
+        period = min(14, len(close) - 1)
+        for i in range(period, len(close)):
+            rsi_vals.append(self.math.rsi(close[:i+1], period))
+        if len(rsi_vals) < 5:
+            return 0.5
+        stoch_period = min(14, len(rsi_vals))
+        lowest_rsi = min(rsi_vals[-stoch_period:])
+        highest_rsi = max(rsi_vals[-stoch_period:])
+        if highest_rsi - lowest_rsi < 1e-9:
+            return 0.5
+        stoch_rsi = (rsi_vals[-1] - lowest_rsi) / (highest_rsi - lowest_rsi) * 100
+        if stoch_rsi < 20:
+            return clip01(0.85 + (20 - stoch_rsi) / 40)
+        elif stoch_rsi > 80:
+            return clip01(0.25 - (stoch_rsi - 80) / 40)
+        return clip01(stoch_rsi / 100)
+
+    async def mfi_signal(self, high: List[float], low: List[float], close: List[float], volume: List[float]) -> float:
+        if len(close) < 15:
+            return 0.5
+        typical = [(h + l + c) / 3 for h, l, c in zip(high, low, close)]
+        mf = [t * v for t, v in zip(typical, volume)]
+        pos_mf, neg_mf = 0.0, 0.0
+        for i in range(1, min(15, len(mf))):
+            if typical[-(i)] > typical[-(i+1)]:
+                pos_mf += mf[-(i)]
+            else:
+                neg_mf += mf[-(i)]
+        if neg_mf < 1e-9:
+            mfi = 100.0
+        else:
+            mfi = 100 - (100 / (1 + pos_mf / neg_mf))
+        if mfi < 20:
+            return clip01(0.85 + (20 - mfi) / 40)
+        elif mfi > 80:
+            return clip01(0.25 - (mfi - 80) / 40)
+        return clip01(mfi / 100)
+
+    async def obv_trend_signal(self, close: List[float], volume: List[float]) -> float:
+        if len(close) < 20:
+            return 0.5
+        obv = [0.0]
+        for i in range(1, len(close)):
+            if close[i] > close[i-1]:
+                obv.append(obv[-1] + volume[i])
+            elif close[i] < close[i-1]:
+                obv.append(obv[-1] - volume[i])
+            else:
+                obv.append(obv[-1])
+        obv_slope = linear_slope(obv[-20:])
+        price_slope = linear_slope(close[-20:])
+        if obv_slope > 0 and price_slope > 0:
+            return clip01(0.7 + tanh01(obv_slope * 1e-6) * 0.25)
+        elif obv_slope > 0 and price_slope < 0:
+            return clip01(0.75)
+        elif obv_slope < 0 and price_slope > 0:
+            return clip01(0.35)
+        return clip01(0.4 + tanh01(obv_slope * 1e-6) * 0.3)
+
+    async def pivot_distance_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        if len(close) < 2:
+            return 0.5
+        pivot = (high[-2] + low[-2] + close[-2]) / 3
+        r1 = 2 * pivot - low[-2]
+        s1 = 2 * pivot - high[-2]
+        current = close[-1]
+        if current > r1:
+            dist = (current - r1) / (r1 - pivot) if (r1 - pivot) > 1e-9 else 0
+            return clip01(0.7 + tanh01(dist) * 0.25)
+        elif current < s1:
+            dist = (s1 - current) / (pivot - s1) if (pivot - s1) > 1e-9 else 0
+            return clip01(0.8 + tanh01(dist) * 0.15)
+        position = (current - s1) / (r1 - s1) if (r1 - s1) > 1e-9 else 0.5
+        return clip01(position)
+
+    async def fibonacci_level_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        if len(close) < 20:
+            return 0.5
+        swing_high = max(high[-20:])
+        swing_low = min(low[-20:])
+        diff = swing_high - swing_low
+        if diff < 1e-9:
+            return 0.5
+        fib_382 = swing_high - diff * 0.382
+        fib_500 = swing_high - diff * 0.500
+        fib_618 = swing_high - diff * 0.618
+        current = close[-1]
+        if current > fib_382:
+            return clip01(0.7 + (current - fib_382) / diff * 0.3)
+        elif current > fib_500:
+            return clip01(0.6)
+        elif current > fib_618:
+            return clip01(0.7)
+        else:
+            return clip01(0.8 + (fib_618 - current) / diff * 0.15)
+
+    async def parabolic_sar_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        if len(close) < 5:
+            return 0.5
+        af_start, af_step, af_max = 0.02, 0.02, 0.2
+        uptrend = close[-1] > close[0]
+        sar = low[0] if uptrend else high[0]
+        ep = high[0] if uptrend else low[0]
+        af = af_start
+        for i in range(1, len(close)):
+            if uptrend:
+                sar = sar + af * (ep - sar)
+                if low[i] < sar:
+                    uptrend = False
+                    sar = ep
+                    ep = low[i]
+                    af = af_start
+                else:
+                    if high[i] > ep:
+                        ep = high[i]
+                        af = min(af + af_step, af_max)
+            else:
+                sar = sar - af * (sar - ep)
+                if high[i] > sar:
+                    uptrend = True
+                    sar = ep
+                    ep = high[i]
+                    af = af_start
+                else:
+                    if low[i] < ep:
+                        ep = low[i]
+                        af = min(af + af_step, af_max)
+        if uptrend and close[-1] > sar:
+            return clip01(0.75 + (close[-1] - sar) / close[-1] * 5)
+        elif not uptrend and close[-1] < sar:
+            return clip01(0.3 - (sar - close[-1]) / close[-1] * 5)
+        return clip01(0.5)
+
     async def analyze(self, symbol: str, high: List[float], low: List[float], 
                      close: List[float], volume: List[float]) -> Dict[str, Any]:
         if len(close) < 50:
@@ -418,7 +575,14 @@ class PreBreakoutDetector:
             self.choppiness_signal(high, low, close),
             self.klinger_signal_score(high, low, close, volume),
             self.donchian_position(high, low, close),
-            self.cci_signal(high, low, close)
+            self.cci_signal(high, low, close),
+            self.williams_r_signal(high, low, close),
+            self.stoch_rsi_signal(close),
+            self.mfi_signal(high, low, close, volume),
+            self.obv_trend_signal(close, volume),
+            self.pivot_distance_signal(high, low, close),
+            self.fibonacci_level_signal(high, low, close),
+            self.parabolic_sar_signal(high, low, close)
         )
         names = [
             "rsi", "momentum_cf", "vol_spike", "pressure", "microtrend",
@@ -426,7 +590,9 @@ class PreBreakoutDetector:
             "impulse", "liquidity", "squeeze",
             "adx_strength", "aroon_signal", "supertrend_conf", "vortex_signal",
             "linreg_trend", "elder_power", "ultimate_osc", "choppiness",
-            "klinger_signal", "donchian_position", "cci_signal"
+            "klinger_signal", "donchian_position", "cci_signal",
+            "williams_r", "stoch_rsi", "mfi_signal", "obv_trend",
+            "pivot_distance", "fibonacci_level", "parabolic_sar"
         ]
         feats = {k: round(v, 4) for k, v in zip(names, tasks)}
         weights = self.cfg.weights or {}
