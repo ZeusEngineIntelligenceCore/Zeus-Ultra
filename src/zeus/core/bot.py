@@ -19,6 +19,7 @@ from ..indicators.prebreakout_detector import PreBreakoutDetector
 from ..strategies.signal_generator import SignalGenerator, TradingSignal, StrategyMode
 from ..strategies.risk_manager import RiskManager, RiskConfig
 from ..alerts.telegram_bot import TelegramAlerts, AlertConfig
+from ..ml.learning_engine import TradingLearningEngine, TradeOutcome
 from .state import StateManager, TradeRecord
 
 logging.basicConfig(
@@ -53,10 +54,12 @@ class ZeusBot:
             telegram_chat_id,
             AlertConfig(enabled=bool(telegram_token and telegram_chat_id))
         )
+        self.ml_engine = TradingLearningEngine()
         self.mode = mode
         self.running = False
         self._pairs_cache: List[str] = []
         self._last_pair_refresh = 0
+        self._learning_cycle_counter = 0
 
     async def start(self) -> bool:
         logger.info(f"Starting Zeus Bot in {self.mode} mode...")
@@ -133,7 +136,9 @@ class ZeusBot:
                             entry_time=datetime.now(timezone.utc).isoformat(),
                             strategy="synced",
                             confidence=50.0,
-                            prebreakout_score=0.0
+                            prebreakout_score=0.0,
+                            is_manual=True,
+                            protected=True
                         )
                         await self.state.open_trade(trade)
                 except Exception as e:
@@ -400,6 +405,24 @@ class ZeusBot:
         trade = self.state.state.active_trades.get(trade_id)
         if not trade:
             return
+        pnl = (exit_price - trade.entry_price) * trade.size if trade.side == "buy" else (trade.entry_price - exit_price) * trade.size
+        pnl_pct = (exit_price - trade.entry_price) / trade.entry_price * 100 if trade.entry_price > 0 else 0
+        if trade.side == "sell":
+            pnl_pct = -pnl_pct
+        is_emergency_stop = "Emergency" in reason or "Stop Loss" in reason
+        if trade.is_manual or trade.protected:
+            if pnl_pct < 5.0 and not is_emergency_stop:
+                logger.info(f"Protected trade {trade.symbol} - waiting for 5%+ profit (current: {pnl_pct:.2f}%)")
+                return
+        if pnl < 0 and not is_emergency_stop:
+            entry_time = datetime.fromisoformat(trade.entry_time.replace('Z', '+00:00'))
+            hold_time = (datetime.now(timezone.utc) - entry_time).total_seconds()
+            max_hold_time = 7 * 24 * 3600
+            if hold_time < max_hold_time:
+                logger.info(f"Loss prevention: {trade.symbol} at {pnl_pct:.2f}% - holding for recovery")
+                return
+            else:
+                logger.warning(f"Max hold time exceeded for {trade.symbol} - allowing loss exit after {hold_time/3600:.1f}h")
         if self.mode == "LIVE":
             try:
                 side = OrderSide.SELL if trade.side == "buy" else OrderSide.BUY
@@ -424,7 +447,40 @@ class ZeusBot:
                 reason
             )
             self.risk_manager.record_trade(closed_trade.pnl, closed_trade.pnl >= 0)
-            logger.info(f"Trade closed: {closed_trade.symbol} PnL: ${closed_trade.pnl:.2f}")
+            pnl_pct = (exit_price - closed_trade.entry_price) / closed_trade.entry_price * 100
+            entry_time = datetime.fromisoformat(closed_trade.entry_time.replace('Z', '+00:00'))
+            exit_time = datetime.now(timezone.utc)
+            duration = int((exit_time - entry_time).total_seconds())
+            indicators_snapshot = {}
+            try:
+                ohlcv = await self.exchange.fetch_ohlcv(closed_trade.symbol, "1h", 50)
+                if len(ohlcv) >= 20:
+                    close_prices = [c.close for c in ohlcv]
+                    indicators_snapshot = {
+                        "last_price": close_prices[-1],
+                        "price_change_24h": (close_prices[-1] - close_prices[-24]) / close_prices[-24] * 100 if len(close_prices) >= 24 else 0
+                    }
+            except:
+                pass
+            outcome = TradeOutcome(
+                symbol=closed_trade.symbol,
+                side=closed_trade.side,
+                entry_price=closed_trade.entry_price,
+                exit_price=exit_price,
+                size=closed_trade.size,
+                pnl=closed_trade.pnl,
+                pnl_pct=pnl_pct,
+                duration_seconds=duration,
+                strategy=closed_trade.strategy,
+                confidence=closed_trade.confidence,
+                prebreakout_score=closed_trade.prebreakout_score,
+                entry_time=closed_trade.entry_time,
+                exit_time=exit_time.isoformat(),
+                exit_reason=reason,
+                indicators_at_entry=indicators_snapshot
+            )
+            self.ml_engine.record_trade_outcome(outcome)
+            logger.info(f"Trade closed: {closed_trade.symbol} PnL: ${closed_trade.pnl:.2f} ({pnl_pct:+.2f}%)")
 
     async def run_cycle(self) -> None:
         try:
@@ -434,10 +490,27 @@ class ZeusBot:
                 signals = await self.generate_signals(candidates)
                 for signal in signals[:5]:
                     if self.state.can_open_new_trade():
-                        await self.execute_trade(signal)
+                        should_trade, adjusted_conf, ml_reasons = self.ml_engine.get_trade_recommendation(
+                            signal.symbol,
+                            signal.confidence,
+                            signal.prebreakout_score,
+                            signal.strategy_mode.value
+                        )
+                        if should_trade and adjusted_conf >= self.state.state.config.min_confidence:
+                            signal.confidence = adjusted_conf
+                            if ml_reasons:
+                                signal.reasons.extend(ml_reasons)
+                            await self.execute_trade(signal)
+                        else:
+                            logger.info(f"ML blocked trade for {signal.symbol}: {ml_reasons}")
                     else:
                         logger.info(f"Max positions ({self.state.state.config.max_open_positions}) reached, monitoring existing trades")
             await self.manage_positions()
+            self._learning_cycle_counter += 1
+            if self._learning_cycle_counter >= 100:
+                self._learning_cycle_counter = 0
+                result = self.ml_engine.run_learning_cycle()
+                logger.info(f"ML Learning cycle: {result}")
         except Exception as e:
             logger.error(f"Cycle error: {e}")
             await self.state.increment_errors()

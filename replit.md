@@ -83,3 +83,14 @@ The bot runs automatically via the configured workflow. It will:
 - **Holdings Monitoring**: Automatically detects and tracks all owned tokens
 - **Scan Interval**: 30 seconds continuous market scanning
 - **Strategy**: Day trading with pre-breakout detection
+- **Loss Prevention**: Bot will NOT sell at a loss - waits for recovery
+- **Manual Order Protection**: Manually placed orders require 5%+ profit to auto-sell
+- **AI/ML Learning**: Continuously learns from trade outcomes to improve decisions
+
+## AI/ML Learning System
+The bot includes a machine learning engine that:
+- Tracks performance by symbol, strategy, and time of day
+- Adjusts confidence thresholds based on historical win rates
+- Identifies optimal trading hours from past performance
+- Blocks trades on symbols with historically low win rates
+- Runs learning cycles every 100 trading cycles to update insights
