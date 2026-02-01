@@ -280,14 +280,54 @@ class ZeusBot:
                 current_price = ticker.last
                 should_close = False
                 close_reason = ""
+                
                 if trade.side == "buy":
+                    if trade.peak_price == 0:
+                        trade.peak_price = trade.entry_price
+                    
+                    if current_price > trade.peak_price:
+                        trade.peak_price = current_price
+                        trade.peak_count += 1
+                        logger.info(f"{trade.symbol} new peak: ${current_price:.6f} (peak #{trade.peak_count})")
+                    
+                    profit_from_entry = (current_price - trade.entry_price) / trade.entry_price
+                    drop_from_peak = (trade.peak_price - current_price) / trade.peak_price if trade.peak_price > 0 else 0
+                    
+                    min_profit_pct = 0.02
+                    trailing_drop_pct = 0.015
+                    fakeout_threshold = 3
+                    
+                    if profit_from_entry >= min_profit_pct:
+                        if drop_from_peak >= trailing_drop_pct:
+                            should_close = True
+                            close_reason = f"Trailing Peak Sell (peak ${trade.peak_price:.6f}, dropped {drop_from_peak:.1%})"
+                    
+                    if trade.peak_count >= fakeout_threshold and drop_from_peak >= 0.01 and profit_from_entry > 0:
+                        should_close = True
+                        close_reason = f"Fakeout Protection (peak #{trade.peak_count}, selling with profit)"
+                    
                     if current_price >= trade.take_profit:
                         should_close = True
                         close_reason = "Take Profit Hit"
                 else:
+                    if trade.peak_price == 0:
+                        trade.peak_price = trade.entry_price
+                    
+                    if current_price < trade.peak_price:
+                        trade.peak_price = current_price
+                        trade.peak_count += 1
+                    
+                    profit_from_entry = (trade.entry_price - current_price) / trade.entry_price
+                    rise_from_peak = (current_price - trade.peak_price) / trade.peak_price if trade.peak_price > 0 else 0
+                    
+                    if profit_from_entry >= 0.02 and rise_from_peak >= 0.015:
+                        should_close = True
+                        close_reason = f"Trailing Peak Sell (peak ${trade.peak_price:.6f})"
+                    
                     if current_price <= trade.take_profit:
                         should_close = True
                         close_reason = "Take Profit Hit"
+                
                 if should_close:
                     await self._close_position(trade_id, current_price, close_reason)
             except Exception as e:
