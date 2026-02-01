@@ -56,21 +56,30 @@ class TradingSignal:
 
 @dataclass
 class SignalConfig:
-    min_confidence: float = 65.0
-    min_rr_ratio: float = 1.5
-    max_spread_pct: float = 0.5
-    atr_stop_mult: float = 2.0
-    atr_tp_mult: float = 3.0
-    scalp_atr_stop: float = 1.0
-    scalp_atr_tp: float = 1.5
-    swing_atr_stop: float = 2.5
-    swing_atr_tp: float = 4.0
-    rsi_oversold: float = 30.0
-    rsi_overbought: float = 70.0
-    volume_spike_threshold: float = 1.5
-    trend_ema_fast: int = 9
+    min_confidence: float = 70.0
+    min_rr_ratio: float = 2.0
+    max_spread_pct: float = 0.3
+    atr_stop_mult: float = 1.8
+    atr_tp_mult: float = 4.0
+    scalp_atr_stop: float = 0.8
+    scalp_atr_tp: float = 2.0
+    swing_atr_stop: float = 2.0
+    swing_atr_tp: float = 5.0
+    rsi_oversold: float = 25.0
+    rsi_overbought: float = 75.0
+    rsi_extreme_oversold: float = 18.0
+    rsi_extreme_overbought: float = 82.0
+    volume_spike_threshold: float = 1.8
+    volume_surge_threshold: float = 2.5
+    trend_ema_fast: int = 8
     trend_ema_slow: int = 21
-    trend_ema_trend: int = 50
+    trend_ema_trend: int = 55
+    trend_ema_long: int = 200
+    macd_histogram_threshold: float = 0.0002
+    adx_strong_trend: float = 30.0
+    adx_weak_trend: float = 20.0
+    bb_squeeze_threshold: float = 0.02
+    confluence_bonus: float = 15.0
 
 
 class SignalGenerator:
@@ -172,28 +181,53 @@ class SignalGenerator:
         ema_fast = self.math.ema(close, self.config.trend_ema_fast)
         ema_slow = self.math.ema(close, self.config.trend_ema_slow)
         ema_trend = self.math.ema(close, self.config.trend_ema_trend)
+        ema_long = self.math.ema(close, min(self.config.trend_ema_long, len(close) - 1)) if len(close) > 50 else ema_trend
         current = close[-1]
-        if ema_fast > ema_slow > ema_trend and current > ema_fast:
+        ema_spacing = abs(ema_fast - ema_slow) / current * 100 if current > 0 else 0
+        ema_momentum = (ema_fast - ema_slow) / ema_slow * 100 if ema_slow > 0 else 0
+        price_vs_ema = (current - ema_trend) / ema_trend * 100 if ema_trend > 0 else 0
+        if ema_fast > ema_slow > ema_trend > ema_long and current > ema_fast:
+            direction = "ULTRA_BULLISH"
+            strength = 1.2 + min(ema_spacing * 0.05, 0.3)
+        elif ema_fast > ema_slow > ema_trend and current > ema_fast:
             direction = "STRONG_UP"
-            strength = 1.0
+            strength = 1.0 + min(ema_spacing * 0.04, 0.2)
         elif ema_fast > ema_slow and current > ema_slow:
             direction = "UP"
-            strength = 0.7
+            strength = 0.7 + min(ema_momentum * 0.02, 0.15)
+        elif ema_fast < ema_slow < ema_trend < ema_long and current < ema_fast:
+            direction = "ULTRA_BEARISH"
+            strength = -1.2 - min(ema_spacing * 0.05, 0.3)
         elif ema_fast < ema_slow < ema_trend and current < ema_fast:
             direction = "STRONG_DOWN"
-            strength = -1.0
+            strength = -1.0 - min(ema_spacing * 0.04, 0.2)
         elif ema_fast < ema_slow and current < ema_slow:
             direction = "DOWN"
-            strength = -0.7
+            strength = -0.7 - min(abs(ema_momentum) * 0.02, 0.15)
+        elif abs(ema_fast - ema_slow) / current < 0.001:
+            direction = "CONSOLIDATING"
+            strength = 0.0
         else:
             direction = "NEUTRAL"
             strength = 0.0
+        slope_5 = (close[-1] - close[-5]) / close[-5] * 100 if len(close) >= 5 and close[-5] > 0 else 0
+        slope_10 = (close[-1] - close[-10]) / close[-10] * 100 if len(close) >= 10 and close[-10] > 0 else 0
+        if slope_5 > 0 and slope_10 > 0 and slope_5 > slope_10:
+            strength += 0.1
+        elif slope_5 < 0 and slope_10 < 0 and slope_5 < slope_10:
+            strength -= 0.1
         return {
             "direction": direction,
             "strength": strength,
             "ema_fast": ema_fast,
             "ema_slow": ema_slow,
-            "ema_trend": ema_trend
+            "ema_trend": ema_trend,
+            "ema_long": ema_long,
+            "ema_spacing": ema_spacing,
+            "ema_momentum": ema_momentum,
+            "price_vs_ema": price_vs_ema,
+            "slope_5": slope_5,
+            "slope_10": slope_10
         }
 
     def _analyze_momentum(self, indicators: Dict) -> Dict[str, Any]:
@@ -203,40 +237,98 @@ class SignalGenerator:
         adx, plus_di, minus_di = indicators["adx"]
         momentum_score = 0.0
         signals = []
-        if rsi < self.config.rsi_oversold:
+        confluence_count = 0
+        if rsi < self.config.rsi_extreme_oversold:
+            momentum_score += 40
+            signals.append("RSI Extreme Oversold - High Probability Reversal")
+            confluence_count += 2
+        elif rsi < self.config.rsi_oversold:
             momentum_score += 30
             signals.append("RSI Oversold")
+            confluence_count += 1
+        elif rsi > self.config.rsi_extreme_overbought:
+            momentum_score -= 40
+            signals.append("RSI Extreme Overbought - High Probability Reversal")
+            confluence_count += 2
         elif rsi > self.config.rsi_overbought:
             momentum_score -= 30
             signals.append("RSI Overbought")
-        elif 40 < rsi < 60:
-            momentum_score += 10
-            signals.append("RSI Neutral Zone")
+            confluence_count += 1
+        elif 45 < rsi < 55:
+            momentum_score += 5
+        macd_strength = abs(histogram) / abs(macd_line) * 100 if macd_line != 0 else 0
         if histogram > 0 and macd_line > signal_line:
-            momentum_score += 20
-            signals.append("MACD Bullish")
-        elif histogram < 0 and macd_line < signal_line:
-            momentum_score -= 20
-            signals.append("MACD Bearish")
-        if adx > 25:
-            if plus_di > minus_di:
-                momentum_score += 15
-                signals.append("Strong Bullish Trend")
+            base_score = 20
+            if macd_strength > 20:
+                base_score += 10
+                signals.append("MACD Strong Bullish Momentum")
             else:
-                momentum_score -= 15
-                signals.append("Strong Bearish Trend")
-        if stoch_k < 20:
-            momentum_score += 10
+                signals.append("MACD Bullish")
+            momentum_score += base_score
+            confluence_count += 1
+        elif histogram < 0 and macd_line < signal_line:
+            base_score = -20
+            if macd_strength > 20:
+                base_score -= 10
+                signals.append("MACD Strong Bearish Momentum")
+            else:
+                signals.append("MACD Bearish")
+            momentum_score += base_score
+            confluence_count += 1
+        di_diff = plus_di - minus_di
+        if adx > self.config.adx_strong_trend:
+            trend_mult = 1.0 + (adx - 30) / 50
+            if di_diff > 10:
+                momentum_score += int(20 * trend_mult)
+                signals.append(f"Strong Bullish Trend (ADX:{adx:.0f})")
+                confluence_count += 1
+            elif di_diff < -10:
+                momentum_score -= int(20 * trend_mult)
+                signals.append(f"Strong Bearish Trend (ADX:{adx:.0f})")
+                confluence_count += 1
+        elif adx > self.config.adx_weak_trend:
+            if di_diff > 5:
+                momentum_score += 10
+                signals.append("Moderate Bullish Trend")
+            elif di_diff < -5:
+                momentum_score -= 10
+                signals.append("Moderate Bearish Trend")
+        stoch_cross_up = stoch_k > stoch_d and stoch_k < 30
+        stoch_cross_down = stoch_k < stoch_d and stoch_k > 70
+        if stoch_k < 15:
+            momentum_score += 20
+            signals.append("Stochastic Extreme Oversold")
+            confluence_count += 1
+        elif stoch_k < 20:
+            momentum_score += 12
             signals.append("Stochastic Oversold")
+        elif stoch_k > 85:
+            momentum_score -= 20
+            signals.append("Stochastic Extreme Overbought")
+            confluence_count += 1
         elif stoch_k > 80:
-            momentum_score -= 10
+            momentum_score -= 12
             signals.append("Stochastic Overbought")
+        if stoch_cross_up:
+            momentum_score += 8
+            signals.append("Stochastic Bullish Cross")
+        elif stoch_cross_down:
+            momentum_score -= 8
+            signals.append("Stochastic Bearish Cross")
+        if confluence_count >= 3:
+            momentum_score += self.config.confluence_bonus
+            signals.append(f"High Confluence ({confluence_count} signals)")
         return {
             "score": momentum_score,
             "signals": signals,
             "rsi": rsi,
             "macd_histogram": histogram,
-            "adx": adx
+            "macd_strength": macd_strength,
+            "adx": adx,
+            "di_diff": di_diff,
+            "stoch_k": stoch_k,
+            "stoch_d": stoch_d,
+            "confluence_count": confluence_count
         }
 
     def _analyze_volatility(self, indicators: Dict, high: List[float], 
@@ -247,63 +339,149 @@ class SignalGenerator:
         current = close[-1]
         volatility_score = 0.0
         signals = []
+        bb_position = (current - bb_lower) / (bb_upper - bb_lower) if bb_upper != bb_lower else 0.5
+        is_tight_squeeze = bb_width < self.config.bb_squeeze_threshold
         if squeeze_on and momentum > 0:
-            volatility_score += 25
-            signals.append("TTM Squeeze Bullish Fire")
+            base_score = 30
+            if is_tight_squeeze:
+                base_score += 10
+                signals.append("TTM Squeeze PRIMED - Tight BB + Bullish Momentum")
+            else:
+                signals.append("TTM Squeeze Bullish Fire")
+            volatility_score += base_score
         elif squeeze_on and momentum < 0:
-            volatility_score -= 15
+            volatility_score -= 18
             signals.append("TTM Squeeze Bearish")
         elif not squeeze_on and momentum > 0:
-            volatility_score += 10
-            signals.append("Squeeze Released Bullish")
-        if current < bb_lower:
             volatility_score += 15
-            signals.append("Price Below Lower BB")
-        elif current > bb_upper:
-            volatility_score -= 15
-            signals.append("Price Above Upper BB")
+            signals.append("Squeeze Released Bullish - Expansion Phase")
+        elif not squeeze_on and momentum < 0:
+            volatility_score -= 12
+            signals.append("Squeeze Released Bearish")
+        bb_touch_lower = current <= bb_lower * 1.002
+        bb_touch_upper = current >= bb_upper * 0.998
+        if bb_touch_lower:
+            recent_touches = sum(1 for i in range(-5, 0) if close[i] <= bb_lower * 1.005)
+            if recent_touches >= 2:
+                volatility_score += 25
+                signals.append("Multiple BB Lower Band Touches - Strong Support")
+            else:
+                volatility_score += 18
+                signals.append("Price at Lower BB - Potential Bounce")
+        elif bb_touch_upper:
+            recent_touches = sum(1 for i in range(-5, 0) if close[i] >= bb_upper * 0.995)
+            if recent_touches >= 2:
+                volatility_score -= 25
+                signals.append("Multiple BB Upper Band Touches - Strong Resistance")
+            else:
+                volatility_score -= 18
+                signals.append("Price at Upper BB - Potential Pullback")
+        elif bb_position < 0.2:
+            volatility_score += 12
+            signals.append("Price Near Lower BB")
+        elif bb_position > 0.8:
+            volatility_score -= 12
+            signals.append("Price Near Upper BB")
         breakout_energy = indicators["breakout_energy"]
-        if breakout_energy > 60:
+        if breakout_energy > 80:
+            volatility_score += 30
+            signals.append(f"EXTREME Breakout Energy ({breakout_energy:.1f}) - Imminent Move")
+        elif breakout_energy > 60:
             volatility_score += 20
             signals.append(f"High Breakout Energy ({breakout_energy:.1f})")
+        elif breakout_energy > 40:
+            volatility_score += 10
+            signals.append(f"Moderate Breakout Energy ({breakout_energy:.1f})")
+        atr_pct = atr / current * 100 if current > 0 else 0
         return {
             "score": volatility_score,
             "signals": signals,
             "squeeze_on": squeeze_on,
+            "is_tight_squeeze": is_tight_squeeze,
             "atr": atr,
+            "atr_pct": atr_pct,
+            "bb_position": bb_position,
+            "bb_width": bb_width,
             "breakout_energy": breakout_energy
         }
 
     def _analyze_volume(self, volume: List[float], indicators: Dict) -> Dict[str, Any]:
-        avg_volume = sum(volume[-20:]) / 20
+        avg_volume_20 = sum(volume[-20:]) / 20 if len(volume) >= 20 else sum(volume) / len(volume)
+        avg_volume_5 = sum(volume[-5:]) / 5 if len(volume) >= 5 else avg_volume_20
         current_volume = volume[-1]
-        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+        volume_ratio = current_volume / avg_volume_20 if avg_volume_20 > 0 else 1.0
+        volume_trend = avg_volume_5 / avg_volume_20 if avg_volume_20 > 0 else 1.0
         obv = indicators["obv"]
         cmf = indicators["cmf"]
         mfi = indicators["mfi"]
         volume_score = 0.0
         signals = []
-        if volume_ratio > self.config.volume_spike_threshold:
+        if volume_ratio > self.config.volume_surge_threshold:
+            volume_score += 25
+            signals.append(f"VOLUME SURGE ({volume_ratio:.1f}x) - Institutional Interest")
+        elif volume_ratio > self.config.volume_spike_threshold:
             volume_score += 15
             signals.append(f"Volume Spike ({volume_ratio:.1f}x)")
-        if cmf > 0.1:
+        elif volume_ratio > 1.3:
+            volume_score += 8
+            signals.append(f"Above Average Volume ({volume_ratio:.1f}x)")
+        if volume_trend > 1.5:
             volume_score += 10
+            signals.append("Rising Volume Trend")
+        elif volume_trend < 0.7:
+            volume_score -= 5
+            signals.append("Declining Volume Trend")
+        if cmf > 0.2:
+            volume_score += 18
+            signals.append("Very Strong Money Flow In")
+        elif cmf > 0.1:
+            volume_score += 12
             signals.append("Strong Money Flow In")
+        elif cmf > 0.05:
+            volume_score += 6
+            signals.append("Positive Money Flow")
+        elif cmf < -0.2:
+            volume_score -= 18
+            signals.append("Very Strong Money Flow Out")
         elif cmf < -0.1:
-            volume_score -= 10
-            signals.append("Money Flow Out")
-        if mfi < 20:
+            volume_score -= 12
+            signals.append("Strong Money Flow Out")
+        elif cmf < -0.05:
+            volume_score -= 6
+            signals.append("Negative Money Flow")
+        if mfi < 15:
+            volume_score += 22
+            signals.append("MFI Extreme Oversold - High Reversal Probability")
+        elif mfi < 20:
             volume_score += 15
             signals.append("MFI Oversold")
+        elif mfi > 85:
+            volume_score -= 22
+            signals.append("MFI Extreme Overbought - High Reversal Probability")
         elif mfi > 80:
             volume_score -= 15
             signals.append("MFI Overbought")
+        obv_trend = 0
+        if len(volume) >= 10:
+            obv_ma = sum(volume[-10:]) / 10
+            obv_current = sum(volume[-3:]) / 3
+            if obv_current > obv_ma * 1.1:
+                obv_trend = 1
+                volume_score += 8
+                signals.append("OBV Rising")
+            elif obv_current < obv_ma * 0.9:
+                obv_trend = -1
+                volume_score -= 8
+                signals.append("OBV Falling")
         return {
             "score": volume_score,
             "signals": signals,
             "volume_ratio": volume_ratio,
+            "volume_trend": volume_trend,
             "cmf": cmf,
-            "mfi": mfi
+            "mfi": mfi,
+            "obv": obv,
+            "obv_trend": obv_trend
         }
 
     def _calculate_signal_score(
@@ -315,31 +493,61 @@ class SignalGenerator:
         prebreakout: Dict,
         mode: StrategyMode
     ) -> tuple:
+        trend_weight = 30
+        momentum_weight = 1.2
+        volatility_weight = 1.1
+        volume_weight = 1.0
         base_score = (
-            trend["strength"] * 25 +
-            momentum["score"] +
-            volatility["score"] +
-            volume["score"]
+            trend["strength"] * trend_weight +
+            momentum["score"] * momentum_weight +
+            volatility["score"] * volatility_weight +
+            volume["score"] * volume_weight
         )
         prebreakout_score = prebreakout.get("prebreakout_score", 0)
         if prebreakout.get("stage") == "PRE_BREAKOUT":
-            base_score += 20
+            base_score += 25
         elif prebreakout.get("stage") == "BREAKOUT":
-            base_score += 30
-        if prebreakout_score > 70:
+            base_score += 40
+        elif prebreakout.get("stage") == "ACCUMULATION":
+            base_score += 10
+        if prebreakout_score > 80:
+            base_score += (prebreakout_score - 80) * 0.8
+        elif prebreakout_score > 70:
             base_score += (prebreakout_score - 70) * 0.5
+        trend_dir = trend.get("direction", "NEUTRAL")
+        mom_score = momentum.get("score", 0)
+        if trend_dir in ["STRONG_UP", "ULTRA_BULLISH"] and mom_score > 30:
+            base_score += 15
+        elif trend_dir in ["STRONG_DOWN", "ULTRA_BEARISH"] and mom_score < -30:
+            base_score -= 15
+        if volatility.get("is_tight_squeeze") and prebreakout_score > 60:
+            base_score += 20
+        if volume.get("volume_ratio", 1.0) > 2.0 and prebreakout_score > 50:
+            base_score += 15
+        confluence = momentum.get("confluence_count", 0)
+        if confluence >= 4:
+            base_score += 25
+        elif confluence >= 3:
+            base_score += 15
         if mode == StrategyMode.SCALP:
             if volatility.get("squeeze_on"):
+                base_score += 15
+            if volatility.get("atr_pct", 0) > 2:
                 base_score += 10
         elif mode == StrategyMode.PRE_BREAKOUT:
-            base_score += prebreakout_score * 0.3
+            base_score += prebreakout_score * 0.4
+        elif mode == StrategyMode.SWING:
+            if trend_dir in ["STRONG_UP", "ULTRA_BULLISH", "STRONG_DOWN", "ULTRA_BEARISH"]:
+                base_score += 10
         reasons = []
         reasons.extend(momentum.get("signals", []))
         reasons.extend(volatility.get("signals", []))
         reasons.extend(volume.get("signals", []))
-        reasons.append(f"Trend: {trend['direction']}")
-        if prebreakout.get("stage") in ["PRE_BREAKOUT", "BREAKOUT"]:
+        reasons.append(f"Trend: {trend['direction']} (Str: {trend['strength']:.2f})")
+        if prebreakout.get("stage") in ["PRE_BREAKOUT", "BREAKOUT", "ACCUMULATION"]:
             reasons.append(f"Stage: {prebreakout.get('stage')} ({prebreakout_score:.1f}%)")
+        if confluence >= 3:
+            reasons.append(f"Multi-Indicator Confluence: {confluence}")
         return base_score, reasons
 
     def _determine_signal_type(self, score: float, side: OrderSide) -> SignalType:

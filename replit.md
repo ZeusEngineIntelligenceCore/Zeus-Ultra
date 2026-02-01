@@ -71,6 +71,8 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Enhanced signal formulas with multi-confluence scoring and advanced trend analysis (February 2026)
+- Upgraded prebreakout detector with momentum boost and volume confirmation (February 2026)
 - Enhanced continuous trading with 20 max positions (February 2026)
 - Added holdings sync to track all owned tokens automatically (February 2026)
 - Optimized for higher profit sells (3-4% minimum profit targets) (February 2026)
