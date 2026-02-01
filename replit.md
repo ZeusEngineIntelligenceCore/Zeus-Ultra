@@ -134,6 +134,10 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- TELEGRAM STABILITY FIX: Fixed StateManager attribute errors - /trades and /report commands now correctly access active_trades (February 2026)
+- Fixed Telegram polling conflict by properly deleting webhook before starting polling (February 2026)
+- Added get_daily_insights() method to TelegramLearningEngine for performance analytics (February 2026)
+- Fixed cmd_report to use correct send_daily_summary parameters (February 2026)
 - MAJOR TELEGRAM UPGRADE: Added interactive commands (/status, /portfolio, /trades, /candidates, /performance, /settings, /help, /report) with inline keyboard buttons (February 2026)
 - Added Telegram command listener with callback query handlers for quick action buttons (February 2026)
 - Added scheduled daily/weekly performance reports at 8 PM PT (February 2026)
