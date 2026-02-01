@@ -87,7 +87,10 @@ The bot runs automatically via the configured workflow. It will:
 - **Max Open Positions**: 100 trades
 - **Minimum Profit Target**: 3-4% before trailing stop activates
 - **Holdings Monitoring**: Automatically detects and tracks all owned tokens
-- **Scan Interval**: 30 seconds continuous market scanning
+- **Full Market Scan**: Every 300 seconds (5 minutes) with all timeframes
+- **Position Scan**: Every 60 seconds for active trades with multi-timeframe analysis
+- **Timeframes**: 5m, 15m, 1h, 4h, 1d - all analyzed for each candidate
+- **Rate Limiter**: 15 public calls/sec, 8 private calls/sec
 - **Strategy**: Day trading with pre-breakout detection
 - **Loss Prevention**: Bot will NOT sell at a loss - waits for recovery
 - **Manual Order Protection**: Manually placed orders require 5%+ profit to auto-sell

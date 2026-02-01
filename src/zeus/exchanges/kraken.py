@@ -44,6 +44,32 @@ def normalize_asset(asset: str) -> str:
     return asset
 
 
+class RateLimiter:
+    def __init__(self, max_calls: int = 15, period: float = 1.0):
+        self.max_calls = max_calls
+        self.period = period
+        self.calls: List[float] = []
+        self._lock = asyncio.Lock()
+    
+    async def acquire(self):
+        async with self._lock:
+            now = time.time()
+            self.calls = [t for t in self.calls if now - t < self.period]
+            if len(self.calls) >= self.max_calls:
+                wait_time = self.period - (now - self.calls[0]) + 0.05
+                if wait_time > 0:
+                    await asyncio.sleep(wait_time)
+                self.calls = [t for t in self.calls if time.time() - t < self.period]
+            self.calls.append(time.time())
+    
+    async def __aenter__(self):
+        await self.acquire()
+        return self
+    
+    async def __aexit__(self, *args):
+        pass
+
+
 class KrakenExchange(ExchangeBase):
     BASE_URL = "https://api.kraken.com"
 
@@ -51,7 +77,8 @@ class KrakenExchange(ExchangeBase):
         super().__init__(api_key, api_secret, sandbox)
         self.name = "kraken"
         self.session: Optional[aiohttp.ClientSession] = None
-        self.rate_limiter = asyncio.Semaphore(5)
+        self.rate_limiter = RateLimiter(max_calls=15, period=1.0)
+        self.private_rate_limiter = RateLimiter(max_calls=8, period=1.0)
         self._markets_cache: Dict[str, Any] = {}
         self._last_nonce = 0
 
@@ -115,7 +142,7 @@ class KrakenExchange(ExchangeBase):
             raise RuntimeError("API credentials required for private endpoints")
         data = data or {}
         data["nonce"] = self._get_nonce()
-        async with self.rate_limiter:
+        async with self.private_rate_limiter:
             try:
                 url = f"{self.BASE_URL}{endpoint}"
                 headers = {
