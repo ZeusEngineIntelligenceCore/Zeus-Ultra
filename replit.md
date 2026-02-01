@@ -71,5 +71,15 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Enhanced continuous trading with 20 max positions (February 2026)
+- Added holdings sync to track all owned tokens automatically (February 2026)
+- Optimized for higher profit sells (3-4% minimum profit targets) (February 2026)
 - Added Replit Auth integration (January 2026)
 - Initial implementation (January 2026)
+
+## Trading Configuration
+- **Max Open Positions**: 20 trades
+- **Minimum Profit Target**: 3-4% before trailing stop activates
+- **Holdings Monitoring**: Automatically detects and tracks all owned tokens
+- **Scan Interval**: 30 seconds continuous market scanning
+- **Strategy**: Day trading with pre-breakout detection

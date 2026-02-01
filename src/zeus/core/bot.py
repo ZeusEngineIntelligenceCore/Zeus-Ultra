@@ -101,10 +101,43 @@ class ZeusBot:
             await self.state.update_equity(equity)
             holdings = {k: v.total for k, v in balances.items() if v.total > 0}
             await self.state.update_holdings(holdings)
+            await self._sync_holdings_with_positions(holdings)
             self.risk_manager.update_portfolio(equity, [])
-            logger.info(f"Balance refreshed: ${equity:.2f}")
+            logger.info(f"Balance refreshed: ${equity:.2f} | Holdings: {len(holdings)} tokens")
         except Exception as e:
             logger.error(f"Failed to refresh balance: {e}")
+
+    async def _sync_holdings_with_positions(self, holdings: Dict[str, float]) -> None:
+        """Ensure all token holdings are tracked - no unaccounted tokens"""
+        tracked_symbols = self.state.get_active_symbols()
+        for token, amount in holdings.items():
+            if token in ["USD", "ZUSD", "EUR", "ZEUR"]:
+                continue
+            if amount < 0.00001:
+                continue
+            pair = f"{token}USD"
+            if pair not in tracked_symbols and token not in tracked_symbols:
+                try:
+                    ticker = await self.exchange.fetch_ticker(pair)
+                    if ticker and ticker.last > 0:
+                        logger.info(f"Found untracked holding: {token} = {amount}, creating position record")
+                        trade = TradeRecord(
+                            id=f"SYNC_{token}_{int(time.time())}",
+                            symbol=pair,
+                            side="buy",
+                            entry_price=ticker.last,
+                            size=amount,
+                            stop_loss=ticker.last * 0.95,
+                            take_profit=ticker.last * 1.10,
+                            status="open",
+                            entry_time=datetime.now(timezone.utc).isoformat(),
+                            strategy="synced",
+                            confidence=50.0,
+                            prebreakout_score=0.0
+                        )
+                        await self.state.open_trade(trade)
+                except Exception as e:
+                    logger.debug(f"Could not sync {token}: {e}")
 
     async def _refresh_pairs(self) -> None:
         try:
@@ -311,28 +344,28 @@ class ZeusBot:
                     drop_from_peak = (trade.peak_price - current_price) / trade.peak_price if trade.peak_price > 0 else 0
                     
                     if trade.breakout_confirmed:
-                        trailing_drop_pct = 0.01
-                        min_profit_pct = 0.015
+                        trailing_drop_pct = 0.015
+                        min_profit_pct = 0.03
                     else:
-                        trailing_drop_pct = 0.02
-                        min_profit_pct = 0.025
+                        trailing_drop_pct = 0.025
+                        min_profit_pct = 0.04
                     
                     if profit_from_entry >= min_profit_pct and drop_from_peak >= trailing_drop_pct:
                         should_close = True
                         close_reason = f"Trailing Peak Sell (peak ${trade.peak_price:.6f}, dropped {drop_from_peak:.1%})"
                     
-                    if trade.fakeout_signals >= 4 and profit_from_entry > 0.005:
+                    if trade.fakeout_signals >= 5 and profit_from_entry > 0.02:
                         should_close = True
                         close_reason = f"Fakeout Protection ({trade.fakeout_signals} weak peaks detected)"
                     
                     if len(trade.price_history) >= 10:
                         recent_prices = trade.price_history[-10:]
                         declining_count = sum(1 for i in range(1, len(recent_prices)) if recent_prices[i] < recent_prices[i-1])
-                        if declining_count >= 7 and profit_from_entry > 0:
+                        if declining_count >= 8 and profit_from_entry > 0.015:
                             should_close = True
-                            close_reason = "Momentum Reversal (7+ declining ticks)"
+                            close_reason = "Momentum Reversal (8+ declining ticks)"
                     
-                    if trade.breakout_confirmed and drop_from_peak >= 0.025:
+                    if trade.breakout_confirmed and drop_from_peak >= 0.03:
                         should_close = True
                         close_reason = f"Breakout Reversal Protection (dropped {drop_from_peak:.1%} from peak)"
                     
@@ -399,9 +432,11 @@ class ZeusBot:
             candidates = await self.scan_markets()
             if candidates:
                 signals = await self.generate_signals(candidates)
-                for signal in signals[:3]:
+                for signal in signals[:5]:
                     if self.state.can_open_new_trade():
                         await self.execute_trade(signal)
+                    else:
+                        logger.info(f"Max positions ({self.state.state.config.max_open_positions}) reached, monitoring existing trades")
             await self.manage_positions()
         except Exception as e:
             logger.error(f"Cycle error: {e}")
