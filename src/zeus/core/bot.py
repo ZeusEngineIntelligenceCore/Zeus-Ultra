@@ -221,6 +221,12 @@ class ZeusBot:
             return None
         max_size = self.state.state.config.per_trade_amount / signal.entry_price
         size = min(size, max_size)
+        
+        order_value = size * signal.entry_price
+        min_order_value = 5.0
+        if order_value < min_order_value:
+            logger.warning(f"Order value ${order_value:.2f} below minimum ${min_order_value:.2f}, skipping {signal.symbol}")
+            return None
         trade_id = f"T{int(time.time() * 1000)}"
         if self.mode == "LIVE":
             try:
