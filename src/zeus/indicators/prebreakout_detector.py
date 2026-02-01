@@ -73,31 +73,32 @@ class BreakoutConfig:
     pressure_cap: float = 1.5
     impulse_cap: float = 5.0
     liquidity_scale: float = 0.5
-    break_pre: float = 65.0
-    break_out: float = 82.0
-    ladder_tiers: int = 4
-    ladder_step_atr: float = 0.5
-    ladder_sell_step: float = 0.7
-    min_confluence_score: float = 0.6
-    momentum_boost: float = 1.3
-    volume_confirmation_mult: float = 1.5
+    break_pre: float = 60.0
+    break_out: float = 78.0
+    ladder_tiers: int = 5
+    ladder_step_atr: float = 0.4
+    ladder_sell_step: float = 0.6
+    min_confluence_score: float = 0.55
+    momentum_boost: float = 1.4
+    volume_confirmation_mult: float = 1.6
+    early_detection_bonus: float = 1.25
     weights: Optional[Dict[str, float]] = None
 
     def __post_init__(self):
         if self.weights is None:
             self.weights = {
-                "rsi": 0.14,
-                "momentum_cf": 0.13,
-                "vol_spike": 0.11,
-                "pressure": 0.13,
-                "microtrend": 0.10,
-                "accel": 0.07,
-                "anomaly_vol": 0.06,
-                "candle_proj": 0.06,
-                "consistency": 0.06,
-                "impulse": 0.08,
+                "rsi": 0.12,
+                "momentum_cf": 0.15,
+                "vol_spike": 0.12,
+                "pressure": 0.14,
+                "microtrend": 0.11,
+                "accel": 0.08,
+                "anomaly_vol": 0.07,
+                "candle_proj": 0.05,
+                "consistency": 0.05,
+                "impulse": 0.06,
                 "liquidity": 0.03,
-                "squeeze": 0.03
+                "squeeze": 0.02
             }
 
 
@@ -309,13 +310,17 @@ class PreBreakoutDetector:
         feats = {k: round(v, 4) for k, v in zip(names, tasks)}
         weights = self.cfg.weights or {}
         raw_score = sum(feats[k] * weights.get(k, 0.0) for k in names)
-        high_value_signals = sum(1 for k in ["momentum_cf", "pressure", "impulse", "squeeze"] if feats[k] >= 0.65)
+        high_value_signals = sum(1 for k in ["momentum_cf", "pressure", "impulse", "squeeze"] if feats[k] >= 0.60)
         if high_value_signals >= 3:
             raw_score *= self.cfg.momentum_boost
         elif high_value_signals >= 2:
             raw_score *= 1.0 + (self.cfg.momentum_boost - 1.0) * 0.5
-        if feats["vol_spike"] >= 0.7 and feats["momentum_cf"] >= 0.6:
-            raw_score *= 1.15
+        if feats["vol_spike"] >= 0.65 and feats["momentum_cf"] >= 0.55:
+            raw_score *= 1.18
+        if feats["squeeze"] >= 0.75 and feats["microtrend"] >= 0.55:
+            raw_score *= self.cfg.early_detection_bonus
+        if feats["accel"] >= 0.65 and feats["pressure"] >= 0.6:
+            raw_score *= 1.12
         prebreakout_score = round(clip01(raw_score) * 100.0, 2)
         breakout_prob = round(math.tanh(prebreakout_score / 80.0), 4)
         enhanced_prob = round(1.0 - math.exp(-prebreakout_score / 75.0), 4)
