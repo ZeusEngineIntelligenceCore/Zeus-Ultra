@@ -281,17 +281,11 @@ class ZeusBot:
                 should_close = False
                 close_reason = ""
                 if trade.side == "buy":
-                    if current_price <= trade.stop_loss:
-                        should_close = True
-                        close_reason = "Stop Loss Hit"
-                    elif current_price >= trade.take_profit:
+                    if current_price >= trade.take_profit:
                         should_close = True
                         close_reason = "Take Profit Hit"
                 else:
-                    if current_price >= trade.stop_loss:
-                        should_close = True
-                        close_reason = "Stop Loss Hit"
-                    elif current_price <= trade.take_profit:
+                    if current_price <= trade.take_profit:
                         should_close = True
                         close_reason = "Take Profit Hit"
                 if should_close:
