@@ -39,6 +39,11 @@ class TradeRecord:
     prebreakout_score: float = 0.0
     peak_price: float = 0.0
     peak_count: int = 0
+    breakout_confirmed: bool = False
+    breakout_strength: float = 0.0
+    fakeout_signals: int = 0
+    price_history: List[float] = field(default_factory=list)
+    volume_at_entry: float = 0.0
 
 
 @dataclass
