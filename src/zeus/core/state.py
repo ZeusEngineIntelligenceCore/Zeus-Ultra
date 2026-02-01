@@ -42,16 +42,16 @@ class TradeRecord:
 @dataclass
 class BotConfig:
     mode: str = "PAPER"
-    max_open_positions: int = 15
-    per_trade_amount: float = 10.0
-    min_confidence: float = 70.0
+    max_open_positions: int = 3
+    per_trade_amount: float = 8.0
+    min_confidence: float = 75.0
     scan_interval: int = 30
     strategy_mode: str = "day_trade"
     enable_telegram: bool = True
     enable_trailing_stop: bool = True
     enable_partial_tp: bool = False
-    risk_per_trade: float = 0.01
-    max_daily_loss: float = 0.03
+    risk_per_trade: float = 0.20
+    max_daily_loss: float = 0.15
 
 
 @dataclass
