@@ -223,7 +223,7 @@ class ZeusBot:
         size = min(size, max_size)
         
         order_value = size * signal.entry_price
-        min_order_value = 1.0
+        min_order_value = 5.0
         if order_value < min_order_value:
             logger.warning(f"Order value ${order_value:.2f} below minimum ${min_order_value:.2f}, skipping {signal.symbol}")
             return None
