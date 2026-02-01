@@ -42,9 +42,8 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
+TRADING_MODE = "LIVE"
 
 [userenv.development]
-TRADING_MODE = "LIVE"
 
 [userenv.production]
-TRADING_MODE = "LIVE"
