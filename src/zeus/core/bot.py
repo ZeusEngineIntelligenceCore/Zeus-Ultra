@@ -305,17 +305,19 @@ class ZeusBot:
         open_trades = self.state.get_open_trades()
         if not open_trades:
             return
-        logger.info(f"Position scan: {len(open_trades)} active positions (all timeframes)...")
-        for trade in open_trades:
-            try:
-                await asyncio.sleep(0.2)
-                mtf_analysis = await self._analyze_multi_timeframe(trade.symbol)
-                if mtf_analysis:
-                    trade.mtf_alignment = mtf_analysis.get("mtf_alignment", 0)
-                    if mtf_analysis.get("stage") in ["DISTRIBUTION", "DECLINE"] and mtf_analysis.get("prebreakout_score", 100) < 40:
-                        logger.warning(f"{trade.symbol} MTF signals weakening (score: {mtf_analysis.get('prebreakout_score', 0):.1f})")
-            except Exception as e:
-                logger.debug(f"Position scan error for {trade.symbol}: {e}")
+        bot_trades = [t for t in open_trades if not t.is_manual and not t.protected]
+        if bot_trades:
+            logger.info(f"Position scan: {len(bot_trades)} bot-managed positions (all timeframes)...")
+            for trade in bot_trades:
+                try:
+                    await asyncio.sleep(0.2)
+                    mtf_analysis = await self._analyze_multi_timeframe(trade.symbol)
+                    if mtf_analysis:
+                        trade.mtf_alignment = mtf_analysis.get("mtf_alignment", 0)
+                        if mtf_analysis.get("stage") in ["DISTRIBUTION", "DECLINE"] and mtf_analysis.get("prebreakout_score", 100) < 40:
+                            logger.warning(f"{trade.symbol} MTF signals weakening (score: {mtf_analysis.get('prebreakout_score', 0):.1f})")
+                except Exception as e:
+                    logger.debug(f"Position scan error for {trade.symbol}: {e}")
         self._last_position_scan = time.time()
         logger.info(f"Position scan complete.")
 
@@ -517,6 +519,8 @@ class ZeusBot:
 
     async def manage_positions(self) -> None:
         for trade_id, trade in list(self.state.state.active_trades.items()):
+            if trade.is_manual or trade.protected:
+                continue
             try:
                 ticker = await self.exchange.fetch_ticker(trade.symbol)
                 if not ticker:
@@ -645,7 +649,6 @@ class ZeusBot:
             pnl_pct = -pnl_pct
         is_emergency_stop = "Emergency" in reason or "Stop Loss" in reason
         if trade.is_manual or trade.protected:
-            logger.info(f"Manual/protected trade {trade.symbol} - bot will not auto-close (current: {pnl_pct:.2f}%)")
             return
         if pnl < 0 and not is_emergency_stop:
             entry_time = datetime.fromisoformat(trade.entry_time.replace('Z', '+00:00'))
