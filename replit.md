@@ -20,8 +20,8 @@ Zeus is a professional-grade autonomous cryptocurrency trading bot designed for 
 │   │   ├── base.py           # Abstract exchange interface
 │   │   └── kraken.py         # Kraken API integration
 │   ├── indicators/
-│   │   ├── math_kernel.py    # 25+ technical indicators
-│   │   └── prebreakout_detector.py  # CAT-9 pre-breakout detection
+│   │   ├── math_kernel.py    # 40+ technical indicators
+│   │   └── prebreakout_detector.py  # 23-KPI pre-breakout detection
 │   ├── strategies/
 │   │   ├── signal_generator.py  # Trading signal generation
 │   │   └── risk_manager.py   # Risk management & position sizing
@@ -32,12 +32,14 @@ Zeus is a professional-grade autonomous cryptocurrency trading bot designed for 
 ```
 
 ## Features
-- **25+ Technical Indicators**: RSI, MACD, Bollinger Bands, ATR, VWAP, Ichimoku, and more
-- **Pre-Breakout Detection**: CAT-9 Ultra scoring system for identifying breakout candidates
-- **Multi-Timeframe Analysis**: Confluence across 5m, 15m, 1h, 4h timeframes
+- **40+ Technical Indicators**: RSI, MACD, Bollinger Bands, ATR, VWAP, Ichimoku, Supertrend, Aroon, Vortex, Elder Ray, and many more
+- **23 KPI Pre-Breakout Scoring**: Comprehensive analysis with weighted multi-factor scoring
+- **Top-20 Priority Focus**: Identifies and tracks the best 20 candidates until exhausted
+- **Multi-Timeframe Analysis**: Confluence across 5m, 15m, 1h, 4h, 1d timeframes with 500 candles each
+- **Dual Learning Engines**: Both trading bot and Telegram learn from your trades
 - **Risk Management**: Kelly Criterion position sizing, max drawdown controls
 - **Order Book Analysis**: Optimal entry/exit price detection
-- **Telegram Alerts**: Real-time notifications for signals and trades
+- **Telegram Alerts with Learning**: Adapts to your trading preferences and patterns
 - **Paper/Live Modes**: Safe testing before live trading
 
 ## Required Secrets
@@ -71,13 +73,18 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Expanded to 40+ technical indicators in MathKernel (February 2026)
+- Enhanced PreBreakout detector with 23 KPIs for precision scoring (February 2026)
+- Added Top-20 priority candidate focus system (February 2026)
+- Added Telegram Learning Engine for adaptive user preferences (February 2026)
+- Dual learning system: both bot and Telegram learn from trades (February 2026)
 - Fixed limit order fill verification with 10-second polling and market fallback (February 2026)
 - Increased candle depth to 500 across all timeframes for deeper market analysis (February 2026)
 - Added enforce_trade_only_alerts() to guarantee only trade open/close notifications (February 2026)
 - Added Telegram alert batching - non-urgent alerts held for 30 min summaries (February 2026)
 - Enhanced signal formulas with multi-confluence scoring and advanced trend analysis (February 2026)
 - Upgraded prebreakout detector with momentum boost and volume confirmation (February 2026)
-- Enhanced continuous trading with 20 max positions (February 2026)
+- Enhanced continuous trading with 100 max positions (February 2026)
 - Added holdings sync to track all owned tokens automatically (February 2026)
 - Optimized for higher profit sells (3-4% minimum profit targets) (February 2026)
 - Added Replit Auth integration (January 2026)
@@ -97,9 +104,20 @@ The bot runs automatically via the configured workflow. It will:
 - **AI/ML Learning**: Continuously learns from trade outcomes to improve decisions
 
 ## AI/ML Learning System
-The bot includes a machine learning engine that:
+The bot includes dual machine learning engines:
+
+### Trading Bot Learning Engine
 - Tracks performance by symbol, strategy, and time of day
 - Adjusts confidence thresholds based on historical win rates
 - Identifies optimal trading hours from past performance
 - Blocks trades on symbols with historically low win rates
 - Runs learning cycles every 100 trading cycles to update insights
+
+### Telegram Learning Engine
+- Learns preferred symbols from successful trades
+- Identifies and avoids consistently unprofitable symbols
+- Tracks optimal trading hours based on your profits
+- Adjusts profit thresholds from your winning patterns
+- Learns optimal hold durations for maximum profit
+- Identifies your best performing strategies
+- Both engines sync every 100 cycles for continuous improvement
