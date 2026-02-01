@@ -281,30 +281,60 @@ class ZeusBot:
                 should_close = False
                 close_reason = ""
                 
+                if trade.price_history is None:
+                    trade.price_history = []
+                trade.price_history.append(current_price)
+                if len(trade.price_history) > 60:
+                    trade.price_history = trade.price_history[-60:]
+                
                 if trade.side == "buy":
                     if trade.peak_price == 0:
                         trade.peak_price = trade.entry_price
                     
                     if current_price > trade.peak_price:
+                        old_peak = trade.peak_price
                         trade.peak_price = current_price
                         trade.peak_count += 1
+                        
+                        peak_gain = (current_price - old_peak) / old_peak if old_peak > 0 else 0
+                        if peak_gain < 0.005:
+                            trade.fakeout_signals += 1
+                        
+                        if not trade.breakout_confirmed and current_price > trade.entry_price * 1.03:
+                            trade.breakout_confirmed = True
+                            trade.breakout_strength = (current_price - trade.entry_price) / trade.entry_price
+                            logger.info(f"{trade.symbol} BREAKOUT CONFIRMED at ${current_price:.6f} (+{trade.breakout_strength:.1%})")
+                        
                         logger.info(f"{trade.symbol} new peak: ${current_price:.6f} (peak #{trade.peak_count})")
                     
                     profit_from_entry = (current_price - trade.entry_price) / trade.entry_price
                     drop_from_peak = (trade.peak_price - current_price) / trade.peak_price if trade.peak_price > 0 else 0
                     
-                    min_profit_pct = 0.02
-                    trailing_drop_pct = 0.015
-                    fakeout_threshold = 3
+                    if trade.breakout_confirmed:
+                        trailing_drop_pct = 0.01
+                        min_profit_pct = 0.015
+                    else:
+                        trailing_drop_pct = 0.02
+                        min_profit_pct = 0.025
                     
-                    if profit_from_entry >= min_profit_pct:
-                        if drop_from_peak >= trailing_drop_pct:
-                            should_close = True
-                            close_reason = f"Trailing Peak Sell (peak ${trade.peak_price:.6f}, dropped {drop_from_peak:.1%})"
-                    
-                    if trade.peak_count >= fakeout_threshold and drop_from_peak >= 0.01 and profit_from_entry > 0:
+                    if profit_from_entry >= min_profit_pct and drop_from_peak >= trailing_drop_pct:
                         should_close = True
-                        close_reason = f"Fakeout Protection (peak #{trade.peak_count}, selling with profit)"
+                        close_reason = f"Trailing Peak Sell (peak ${trade.peak_price:.6f}, dropped {drop_from_peak:.1%})"
+                    
+                    if trade.fakeout_signals >= 4 and profit_from_entry > 0.005:
+                        should_close = True
+                        close_reason = f"Fakeout Protection ({trade.fakeout_signals} weak peaks detected)"
+                    
+                    if len(trade.price_history) >= 10:
+                        recent_prices = trade.price_history[-10:]
+                        declining_count = sum(1 for i in range(1, len(recent_prices)) if recent_prices[i] < recent_prices[i-1])
+                        if declining_count >= 7 and profit_from_entry > 0:
+                            should_close = True
+                            close_reason = "Momentum Reversal (7+ declining ticks)"
+                    
+                    if trade.breakout_confirmed and drop_from_peak >= 0.025:
+                        should_close = True
+                        close_reason = f"Breakout Reversal Protection (dropped {drop_from_peak:.1%} from peak)"
                     
                     if current_price >= trade.take_profit:
                         should_close = True
@@ -320,7 +350,7 @@ class ZeusBot:
                     profit_from_entry = (trade.entry_price - current_price) / trade.entry_price
                     rise_from_peak = (current_price - trade.peak_price) / trade.peak_price if trade.peak_price > 0 else 0
                     
-                    if profit_from_entry >= 0.02 and rise_from_peak >= 0.015:
+                    if profit_from_entry >= 0.015 and rise_from_peak >= 0.015:
                         should_close = True
                         close_reason = f"Trailing Peak Sell (peak ${trade.peak_price:.6f})"
                     
