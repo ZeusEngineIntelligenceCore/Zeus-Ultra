@@ -906,6 +906,8 @@ Use the buttons below or type commands to interact with me.
         if not TELEGRAM_AVAILABLE or self._commands_registered:
             return
         try:
+            await self.stop_command_listener()
+            await asyncio.sleep(2)
             self.app = Application.builder().token(self.token).build()
             self.app.add_handler(CommandHandler("start", self.cmd_start))
             self.app.add_handler(CommandHandler("status", self.cmd_status))
@@ -921,10 +923,14 @@ Use the buttons below or type commands to interact with me.
             logger.info("Telegram command handlers registered")
             await self.app.initialize()
             await self.app.start()
-            await self.app.updater.start_polling(drop_pending_updates=True)
+            await self.app.updater.start_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
             logger.info("Telegram command listener started")
         except Exception as e:
-            logger.error(f"Failed to start command listener: {e}")
+            if "Conflict" in str(e):
+                logger.warning("Telegram polling conflict detected - another instance running. Disabling polling for this instance.")
+                self._commands_registered = True
+            else:
+                logger.error(f"Failed to start command listener: {e}")
 
     async def stop_command_listener(self) -> None:
         if self.app:
