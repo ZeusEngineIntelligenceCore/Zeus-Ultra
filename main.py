@@ -210,13 +210,12 @@ def run_server():
 
     options = {
         'bind': f'0.0.0.0:{port}',
-        'workers': 2,
+        'workers': 1,
         'threads': 4,
         'timeout': 120,
         'accesslog': '-',
         'errorlog': '-',
-        'loglevel': 'info',
-        'preload_app': True
+        'loglevel': 'info'
     }
     
     GunicornApp(app, options).run()
