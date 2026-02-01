@@ -146,14 +146,15 @@ class ZeusBot:
                     ticker = await self.exchange.fetch_ticker(pair)
                     if ticker and ticker.last > 0:
                         logger.info(f"Found untracked holding: {token} = {amount}, creating position record")
+                        take_profit, stop_loss = await self._calculate_intelligent_targets(pair, ticker.last, amount)
                         trade = TradeRecord(
                             id=f"SYNC_{token}_{int(time.time())}",
                             symbol=pair,
                             side="buy",
                             entry_price=ticker.last,
                             size=amount,
-                            stop_loss=ticker.last * 0.95,
-                            take_profit=ticker.last * 1.10,
+                            stop_loss=stop_loss,
+                            take_profit=take_profit,
                             status="open",
                             entry_time=datetime.now(timezone.utc).isoformat(),
                             strategy="synced",
@@ -162,9 +163,125 @@ class ZeusBot:
                             is_manual=True,
                             protected=True
                         )
+                        sell_order_id = await self._place_limit_sell(pair, amount, take_profit)
+                        if sell_order_id:
+                            trade.sell_order_id = sell_order_id
                         await self.state.open_trade(trade)
                 except Exception as e:
                     logger.debug(f"Could not sync {token}: {e}")
+
+    async def _calculate_intelligent_targets(self, symbol: str, current_price: float, size: float) -> tuple:
+        """Calculate intelligent take-profit and stop-loss using KPIs, volatility, and market analysis"""
+        try:
+            ohlcv = await self.exchange.fetch_ohlcv(symbol, "1h", 100)
+            if len(ohlcv) < 50:
+                return current_price * 1.08, current_price * 0.92
+            high = [c.high for c in ohlcv]
+            low = [c.low for c in ohlcv]
+            close = [c.close for c in ohlcv]
+            volume = [c.volume for c in ohlcv]
+            indicators = self.signal_gen.math.calculate_all(high, low, close, volume)
+            atr = indicators.get("atr", current_price * 0.03)
+            recent_high = max(high[-20:])
+            recent_low = min(low[-20:])
+            price_range = recent_high - recent_low
+            volatility_pct = (atr / current_price) * 100 if current_price > 0 else 3.0
+            resistance_levels = []
+            for i in range(len(high) - 5):
+                if high[i] == max(high[max(0, i-2):i+3]):
+                    resistance_levels.append(high[i])
+            resistance_levels = sorted([r for r in resistance_levels if r > current_price])[:3]
+            rsi = indicators.get("rsi", 50)
+            macd_data = indicators.get("macd", {})
+            macd_hist = macd_data.get("histogram", 0) if isinstance(macd_data, dict) else 0
+            bullish_momentum = rsi < 70 and macd_hist > 0
+            if volatility_pct > 8:
+                tp_mult = 2.5
+            elif volatility_pct > 5:
+                tp_mult = 2.2
+            elif volatility_pct > 3:
+                tp_mult = 2.0
+            else:
+                tp_mult = 1.8
+            if bullish_momentum:
+                tp_mult *= 1.15
+            base_tp = current_price + (atr * tp_mult)
+            if resistance_levels:
+                nearest_resistance = resistance_levels[0]
+                if nearest_resistance < base_tp * 1.2:
+                    base_tp = nearest_resistance * 0.995
+            take_profit = max(base_tp, current_price * 1.04)
+            sl_mult = 1.5
+            stop_loss = current_price - (atr * sl_mult)
+            stop_loss = max(stop_loss, current_price * 0.88)
+            logger.info(f"{symbol} intelligent targets: TP=${take_profit:.6f} (+{((take_profit/current_price)-1)*100:.1f}%), SL=${stop_loss:.6f} (-{((1-stop_loss/current_price))*100:.1f}%) | ATR={atr:.6f} Vol={volatility_pct:.1f}%")
+            return round(take_profit, 8), round(stop_loss, 8)
+        except Exception as e:
+            logger.warning(f"Could not calculate intelligent targets for {symbol}: {e}")
+            return current_price * 1.08, current_price * 0.92
+
+    def _round_price_for_kraken(self, symbol: str, price: float) -> float:
+        """Round price to appropriate decimal places for Kraken based on price magnitude"""
+        if price >= 1000:
+            return round(price, 2)
+        elif price >= 100:
+            return round(price, 3)
+        elif price >= 1:
+            return round(price, 4)
+        elif price >= 0.1:
+            return round(price, 4)
+        elif price >= 0.01:
+            return round(price, 5)
+        elif price >= 0.001:
+            return round(price, 5)
+        elif price >= 0.0001:
+            return round(price, 6)
+        elif price >= 0.00001:
+            return round(price, 7)
+        else:
+            return round(price, 8)
+
+    async def _place_limit_sell(self, symbol: str, size: float, price: float) -> Optional[str]:
+        """Place a limit sell order on the exchange"""
+        if self.mode != "LIVE":
+            logger.info(f"PAPER mode: Would place sell order for {symbol} @ ${price:.6f}")
+            return None
+        price = self._round_price_for_kraken(symbol, price)
+        try:
+            sell_order = await self.exchange.create_order(
+                symbol,
+                OrderType.LIMIT,
+                OrderSide.SELL,
+                size,
+                price=price
+            )
+            if sell_order and sell_order.id:
+                logger.info(f"Placed limit sell order for {symbol}: {sell_order.id} @ ${price:.6f}")
+                return sell_order.id
+        except Exception as e:
+            logger.warning(f"Failed to place sell order for {symbol}: {e}")
+        return None
+
+    async def ensure_sell_orders_placed(self) -> None:
+        """Check all bot-managed positions and ensure they have sell orders on exchange"""
+        if self.mode != "LIVE":
+            return
+        for trade_id, trade in list(self.state.state.active_trades.items()):
+            if trade.protected or trade.is_manual:
+                continue
+            if trade.symbol in ["USDCUSD", "USDTUSD"]:
+                continue
+            if not trade.sell_order_id:
+                logger.info(f"Position {trade.symbol} missing sell order, placing now...")
+                take_profit, _ = await self._calculate_intelligent_targets(
+                    trade.symbol, trade.entry_price, trade.size
+                )
+                trade.take_profit = take_profit
+                sell_order_id = await self._place_limit_sell(trade.symbol, trade.size, take_profit)
+                if sell_order_id:
+                    trade.sell_order_id = sell_order_id
+                    await self.state.save_state()
+                    logger.info(f"Placed missing sell order for {trade.symbol}: {sell_order_id}")
 
     async def _refresh_pairs(self) -> None:
         try:
@@ -763,6 +880,7 @@ class ZeusBot:
     async def run_cycle(self) -> None:
         try:
             await self._refresh_balance()
+            await self.ensure_sell_orders_placed()
             candidates = await self.scan_markets()
             if candidates:
                 signals = await self.generate_signals(candidates)
