@@ -5,6 +5,9 @@ import uuid
 from functools import wraps
 from urllib.parse import urlencode
 
+import requests
+from jwt import PyJWKClient
+
 from flask import g, session, redirect, request, render_template, url_for
 from flask_dance.consumer import (
     OAuth2ConsumerBlueprint,
@@ -145,10 +148,25 @@ def save_user(user_claims):
     return merged_user
 
 
+def get_jwks_client():
+    """Fetch the JWKS URI from the OIDC provider's discovery document."""
+    discovery_url = f"{ISSUER_URL}/.well-known/openid-configuration"
+    discovery_doc = requests.get(discovery_url, timeout=10).json()
+    jwks_uri = discovery_doc["jwks_uri"]
+    return PyJWKClient(jwks_uri)
+
+
 @oauth_authorized.connect
 def logged_in(blueprint, token):
-    user_claims = jwt.decode(token['id_token'],
-                             options={"verify_signature": False})
+    id_token = token['id_token']
+    jwks_client = get_jwks_client()
+    signing_key = jwks_client.get_signing_key_from_jwt(id_token)
+    user_claims = jwt.decode(
+        id_token,
+        signing_key.key,
+        algorithms=["RS256"],
+        options={"verify_aud": False}
+    )
     user = save_user(user_claims)
     login_user(user)
     blueprint.token = token
