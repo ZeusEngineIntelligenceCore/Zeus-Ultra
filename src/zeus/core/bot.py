@@ -203,7 +203,8 @@ class ZeusBot:
                     "reasons": [f"MTF aligned ({bullish_count}/5 bullish)"] + primary_tf.get("reasons", []),
                     "spread_pct": order_book.get("spread_pct", 0) if order_book else 0,
                     "imbalance": order_book.get("imbalance", 0) if order_book else 0,
-                    "mtf_alignment": bullish_count / len(mtf_data) if mtf_data else 0
+                    "mtf_alignment": bullish_count / len(mtf_data) if mtf_data else 0,
+                    "kpi_count": primary_tf.get("kpi_count", 23)
                 }
         except Exception as e:
             logger.debug(f"MTF analysis error for {pair}: {e}")
@@ -226,7 +227,7 @@ class ZeusBot:
         self._priority_last_refresh = time.time()
         logger.info(f"Top-{self._priority_focus_size} priority candidates identified:")
         for i, c in enumerate(self._priority_candidates[:10]):
-            logger.info(f"  #{i+1}: {c['symbol']} Score: {c['prebreakout_score']:.1f} Stage: {c['stage']} KPIs: {c.get('kpi_count', 12)}")
+            logger.info(f"  #{i+1}: {c['symbol']} Score: {c['prebreakout_score']:.1f} Stage: {c['stage']} KPIs: {c.get('kpi_count', 23)}")
         await self.state.set_candidates(candidates[:50])
         await self.state.set_status("IDLE")
         self._last_full_scan = time.time()
