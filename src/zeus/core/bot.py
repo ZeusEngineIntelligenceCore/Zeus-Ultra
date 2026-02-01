@@ -62,6 +62,9 @@ class ZeusBot:
         self._pairs_cache: List[str] = []
         self._last_pair_refresh = 0
         self._learning_cycle_counter = 0
+        self._last_full_scan = 0
+        self._last_position_scan = 0
+        self._all_timeframes = ["5m", "15m", "1h", "4h", "1d"]
 
     async def start(self) -> bool:
         logger.info(f"Starting Zeus Bot in {self.mode} mode...")
@@ -154,51 +157,70 @@ class ZeusBot:
         except Exception as e:
             logger.error(f"Failed to refresh pairs: {e}")
 
+    async def _analyze_multi_timeframe(self, pair: str) -> Optional[Dict[str, Any]]:
+        try:
+            mtf_data = {}
+            mtf_scores = []
+            for tf in self._all_timeframes:
+                await asyncio.sleep(0.1)
+                ohlcv = await self.exchange.fetch_ohlcv(pair, tf, 500)
+                if len(ohlcv) < 50:
+                    continue
+                high = [c.high for c in ohlcv]
+                low = [c.low for c in ohlcv]
+                close = [c.close for c in ohlcv]
+                volume = [c.volume for c in ohlcv]
+                analysis = await self.prebreakout.analyze(pair, high, low, close, volume)
+                mtf_data[tf] = analysis
+                if analysis.get("prebreakout_score", 0) > 0:
+                    weight = {"5m": 0.1, "15m": 0.15, "1h": 0.25, "4h": 0.30, "1d": 0.20}.get(tf, 0.15)
+                    mtf_scores.append(analysis["prebreakout_score"] * weight)
+            if not mtf_scores:
+                return None
+            combined_score = sum(mtf_scores) / sum([0.1, 0.15, 0.25, 0.30, 0.20][:len(mtf_scores)])
+            primary_tf = mtf_data.get("1h", mtf_data.get("4h", mtf_data.get("15m", {})))
+            if not primary_tf:
+                return None
+            bullish_count = sum(1 for tf, d in mtf_data.items() if d.get("stage") in ["PRE_BREAKOUT", "BREAKOUT"])
+            if bullish_count >= 2 or combined_score >= 55:
+                order_book = await self.exchange.analyze_order_book(pair)
+                return {
+                    "symbol": pair,
+                    "price": primary_tf.get("close_price", 0),
+                    "prebreakout_score": combined_score,
+                    "stage": primary_tf.get("stage", "UNKNOWN"),
+                    "buy_anchor": primary_tf.get("buy_anchor", 0),
+                    "sell_anchor": primary_tf.get("sell_anchor", 0),
+                    "stop_loss": primary_tf.get("stop_loss", 0),
+                    "take_profit": primary_tf.get("take_profit", 0),
+                    "atr": primary_tf.get("atr", 0),
+                    "features": primary_tf.get("features", {}),
+                    "reasons": [f"MTF aligned ({bullish_count}/5 bullish)"] + primary_tf.get("reasons", []),
+                    "spread_pct": order_book.get("spread_pct", 0) if order_book else 0,
+                    "imbalance": order_book.get("imbalance", 0) if order_book else 0,
+                    "mtf_alignment": bullish_count / len(mtf_data) if mtf_data else 0
+                }
+        except Exception as e:
+            logger.debug(f"MTF analysis error for {pair}: {e}")
+        return None
+
     async def scan_markets(self) -> List[Dict[str, Any]]:
         await self.state.set_status("SCANNING")
-        logger.info(f"Scanning {len(self._pairs_cache)} pairs...")
+        logger.info(f"Full market scan: {len(self._pairs_cache)} pairs (all timeframes)...")
         if time.time() - self._last_pair_refresh > 3600:
             await self._refresh_pairs()
         candidates = []
-        semaphore = asyncio.Semaphore(10)
+        semaphore = asyncio.Semaphore(5)
         async def analyze_pair(pair: str) -> Optional[Dict[str, Any]]:
             async with semaphore:
-                try:
-                    ohlcv = await self.exchange.fetch_ohlcv(pair, "1h", 500)
-                    if len(ohlcv) < 50:
-                        return None
-                    high = [c.high for c in ohlcv]
-                    low = [c.low for c in ohlcv]
-                    close = [c.close for c in ohlcv]
-                    volume = [c.volume for c in ohlcv]
-                    analysis = await self.prebreakout.analyze(pair, high, low, close, volume)
-                    if analysis.get("stage") in ["PRE_BREAKOUT", "BREAKOUT", "ACCUMULATION"]:
-                        if analysis.get("prebreakout_score", 0) >= 50:
-                            order_book = await self.exchange.analyze_order_book(pair)
-                            return {
-                                "symbol": pair,
-                                "price": close[-1],
-                                "prebreakout_score": analysis["prebreakout_score"],
-                                "stage": analysis["stage"],
-                                "buy_anchor": analysis["buy_anchor"],
-                                "sell_anchor": analysis["sell_anchor"],
-                                "stop_loss": analysis["stop_loss"],
-                                "take_profit": analysis["take_profit"],
-                                "atr": analysis["atr"],
-                                "features": analysis["features"],
-                                "reasons": analysis.get("reasons", []),
-                                "spread_pct": order_book.get("spread_pct", 0) if order_book else 0,
-                                "imbalance": order_book.get("imbalance", 0) if order_book else 0
-                            }
-                except Exception as e:
-                    logger.debug(f"Error analyzing {pair}: {e}")
-                return None
+                return await self._analyze_multi_timeframe(pair)
         results = await asyncio.gather(*[analyze_pair(p) for p in self._pairs_cache])
         candidates = [r for r in results if r is not None]
         candidates.sort(key=lambda x: x["prebreakout_score"], reverse=True)
-        await self.state.set_candidates(candidates[:20])
+        await self.state.set_candidates(candidates[:50])
         await self.state.set_status("IDLE")
-        logger.info(f"Scan complete. Found {len(candidates)} candidates.")
+        self._last_full_scan = time.time()
+        logger.info(f"Full scan complete. Found {len(candidates)} candidates.")
         for c in candidates[:3]:
             if c["prebreakout_score"] >= 70:
                 await self.telegram.send_prebreakout_alert(
@@ -210,6 +232,24 @@ class ZeusBot:
                     c["reasons"]
                 )
         return candidates
+
+    async def scan_active_positions(self) -> None:
+        open_trades = self.state.get_open_trades()
+        if not open_trades:
+            return
+        logger.info(f"Position scan: {len(open_trades)} active positions (all timeframes)...")
+        for trade in open_trades:
+            try:
+                await asyncio.sleep(0.2)
+                mtf_analysis = await self._analyze_multi_timeframe(trade.symbol)
+                if mtf_analysis:
+                    trade.mtf_alignment = mtf_analysis.get("mtf_alignment", 0)
+                    if mtf_analysis.get("stage") in ["DISTRIBUTION", "DECLINE"] and mtf_analysis.get("prebreakout_score", 100) < 40:
+                        logger.warning(f"{trade.symbol} MTF signals weakening (score: {mtf_analysis.get('prebreakout_score', 0):.1f})")
+            except Exception as e:
+                logger.debug(f"Position scan error for {trade.symbol}: {e}")
+        self._last_position_scan = time.time()
+        logger.info(f"Position scan complete.")
 
     async def generate_signals(self, candidates: List[Dict[str, Any]]) -> List[TradingSignal]:
         signals = []
@@ -578,10 +618,26 @@ class ZeusBot:
                 if kill_switch_active():
                     logger.warning("Kill switch activated!")
                     break
-                await self.run_cycle()
-                interval = self.state.state.config.scan_interval
-                logger.info(f"Sleeping for {interval} seconds...")
-                await asyncio.sleep(interval)
+                now = time.time()
+                full_scan_interval = self.state.state.config.scan_interval
+                position_interval = self.state.state.config.position_scan_interval
+                should_full_scan = (now - self._last_full_scan) >= full_scan_interval
+                should_position_scan = (now - self._last_position_scan) >= position_interval
+                if should_full_scan:
+                    await self.run_cycle()
+                elif should_position_scan:
+                    await self._refresh_balance()
+                    await self.scan_active_positions()
+                    await self.manage_positions()
+                    self._last_position_scan = now
+                    logger.info("Position scan cycle complete.")
+                else:
+                    await self.manage_positions()
+                next_position = max(0, position_interval - (time.time() - self._last_position_scan))
+                next_full = max(0, full_scan_interval - (time.time() - self._last_full_scan))
+                sleep_time = min(next_position, next_full, 30)
+                logger.info(f"Next position scan: {int(next_position)}s | Next full scan: {int(next_full)}s | Sleeping {int(sleep_time)}s...")
+                await asyncio.sleep(sleep_time)
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
         except Exception as e:

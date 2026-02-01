@@ -54,7 +54,8 @@ class BotConfig:
     max_open_positions: int = 100
     per_trade_amount: float = 15.0
     min_confidence: float = 75.0
-    scan_interval: int = 30
+    scan_interval: int = 300
+    position_scan_interval: int = 60
     strategy_mode: str = "day_trade"
     enable_telegram: bool = True
     enable_trailing_stop: bool = True
