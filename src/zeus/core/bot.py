@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from ..exchanges.kraken import KrakenExchange
-from ..exchanges.base import OrderSide, OrderType, OHLCV
+from ..exchanges.base import OrderSide, OrderType, OrderStatus, OHLCV
 from ..indicators.prebreakout_detector import PreBreakoutDetector
 from ..strategies.signal_generator import SignalGenerator, TradingSignal, StrategyMode
 from ..strategies.risk_manager import RiskManager, RiskConfig
@@ -49,10 +49,12 @@ class ZeusBot:
         self.signal_gen = SignalGenerator()
         self.risk_manager = RiskManager()
         self.prebreakout = PreBreakoutDetector()
+        alert_config = AlertConfig(enabled=bool(telegram_token and telegram_chat_id))
+        alert_config.enforce_trade_only_alerts()
         self.telegram = TelegramAlerts(
             telegram_token, 
             telegram_chat_id,
-            AlertConfig(enabled=bool(telegram_token and telegram_chat_id))
+            alert_config
         )
         self.ml_engine = TradingLearningEngine()
         self.mode = mode
@@ -162,7 +164,7 @@ class ZeusBot:
         async def analyze_pair(pair: str) -> Optional[Dict[str, Any]]:
             async with semaphore:
                 try:
-                    ohlcv = await self.exchange.fetch_ohlcv(pair, "1h", 100)
+                    ohlcv = await self.exchange.fetch_ohlcv(pair, "1h", 500)
                     if len(ohlcv) < 50:
                         return None
                     high = [c.high for c in ohlcv]
@@ -220,7 +222,7 @@ class ZeusBot:
         mode = strategy_map.get(self.state.state.config.strategy_mode, StrategyMode.DAY_TRADE)
         for candidate in candidates[:10]:
             try:
-                ohlcv = await self.exchange.fetch_ohlcv(candidate["symbol"], "15m", 100)
+                ohlcv = await self.exchange.fetch_ohlcv(candidate["symbol"], "15m", 500)
                 if len(ohlcv) < 50:
                     continue
                 order_book = await self.exchange.analyze_order_book(candidate["symbol"])
@@ -268,17 +270,69 @@ class ZeusBot:
         trade_id = f"T{int(time.time() * 1000)}"
         if self.mode == "LIVE":
             try:
+                order_book = await self.exchange.analyze_order_book(signal.symbol)
+                optimal_price = signal.entry_price
+                if order_book and signal.side == OrderSide.BUY:
+                    best_bid = order_book.get("best_bid", signal.entry_price)
+                    spread_pct = order_book.get("spread_pct", 0)
+                    if spread_pct > 0.5:
+                        optimal_price = best_bid * 0.9995
+                    else:
+                        optimal_price = best_bid * 0.9998
+                    optimal_price = max(optimal_price, signal.entry_price * 0.995)
+                    logger.info(f"Optimized buy price: ${optimal_price:.8f} (bid: ${best_bid:.8f})")
+                elif order_book and signal.side == OrderSide.SELL:
+                    best_ask = order_book.get("best_ask", signal.entry_price)
+                    optimal_price = best_ask * 1.0002
+                    logger.info(f"Optimized sell price: ${optimal_price:.8f} (ask: ${best_ask:.8f})")
                 order = await self.exchange.create_order(
                     signal.symbol,
-                    OrderType.MARKET,
+                    OrderType.LIMIT,
                     signal.side,
-                    size
+                    size,
+                    price=optimal_price
                 )
+                used_market_order = False
+                if not order:
+                    logger.warning("Limit order failed, falling back to market order")
+                    order = await self.exchange.create_order(
+                        signal.symbol,
+                        OrderType.MARKET,
+                        signal.side,
+                        size
+                    )
+                    used_market_order = True
                 if not order:
                     logger.error("Order placement failed")
                     return None
                 trade_id = order.id
-                logger.info(f"Order placed: {trade_id}")
+                if not used_market_order:
+                    filled = False
+                    for _ in range(10):
+                        await asyncio.sleep(1)
+                        order_status = await self.exchange.fetch_order(trade_id, signal.symbol)
+                        if order_status and order_status.status == OrderStatus.FILLED:
+                            filled = True
+                            logger.info(f"Limit order filled: {trade_id} @ ${optimal_price:.8f}")
+                            break
+                    if not filled:
+                        logger.warning(f"Limit order not filled within 10s, canceling and using market")
+                        await self.exchange.cancel_order(trade_id, signal.symbol)
+                        order = await self.exchange.create_order(
+                            signal.symbol,
+                            OrderType.MARKET,
+                            signal.side,
+                            size
+                        )
+                        if not order:
+                            logger.error("Market order fallback failed")
+                            return None
+                        trade_id = order.id
+                        used_market_order = True
+                if used_market_order:
+                    logger.info(f"Market order executed: {trade_id}")
+                else:
+                    logger.info(f"Limit order filled: {trade_id} @ ${optimal_price:.8f}")
             except Exception as e:
                 logger.error(f"Order execution failed: {e}")
                 await self.telegram.send_error_alert("Order Failed", str(e))
@@ -453,7 +507,7 @@ class ZeusBot:
             duration = int((exit_time - entry_time).total_seconds())
             indicators_snapshot = {}
             try:
-                ohlcv = await self.exchange.fetch_ohlcv(closed_trade.symbol, "1h", 50)
+                ohlcv = await self.exchange.fetch_ohlcv(closed_trade.symbol, "1h", 500)
                 if len(ohlcv) >= 20:
                     close_prices = [c.close for c in ohlcv]
                     indicators_snapshot = {

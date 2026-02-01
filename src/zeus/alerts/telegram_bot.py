@@ -27,17 +27,26 @@ logger = logging.getLogger("Zeus.Telegram")
 @dataclass
 class AlertConfig:
     enabled: bool = True
-    send_signals: bool = True
+    send_signals: bool = False
     send_trades: bool = True
-    send_portfolio_updates: bool = True
-    send_daily_summary: bool = True
+    send_portfolio_updates: bool = False
+    send_daily_summary: bool = False
+    send_bot_status: bool = False
     min_confidence_alert: float = 70.0
-    alert_on_prebreakout: bool = True
+    alert_on_prebreakout: bool = False
     alert_on_stop_hit: bool = True
     alert_on_tp_hit: bool = True
     quiet_hours_start: int = 0
     quiet_hours_end: int = 0
     batch_interval_minutes: int = 30
+    
+    def enforce_trade_only_alerts(self) -> None:
+        """Enforce that only trade open/close alerts are sent."""
+        self.send_signals = False
+        self.send_portfolio_updates = False
+        self.send_daily_summary = False
+        self.send_bot_status = False
+        self.alert_on_prebreakout = False
 
 
 @dataclass
@@ -338,6 +347,8 @@ class TelegramAlerts:
         return await self.send_message(alert.strip(), alert_type="error")
 
     async def send_bot_status(self, status: str, mode: str, pairs_count: int) -> bool:
+        if not self.config.send_bot_status:
+            return False
         status_emoji = "🟢" if status == "RUNNING" else "🔴" if status == "STOPPED" else "🟡"
         message = f"""
 {status_emoji} <b>ZEUS BOT STATUS</b>

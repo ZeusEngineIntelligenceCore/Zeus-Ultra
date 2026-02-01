@@ -167,8 +167,8 @@ class TradingLearningEngine:
         
     def run_learning_cycle(self) -> Dict[str, Any]:
         """Run a full learning cycle to update model parameters"""
-        if len(self.state.trade_history_for_learning) < 10:
-            return {"status": "insufficient_data", "trades_needed": 10 - len(self.state.trade_history_for_learning)}
+        if len(self.state.trade_history_for_learning) < 5:
+            return {"status": "insufficient_data", "trades_needed": 5 - len(self.state.trade_history_for_learning)}
             
         insights = {}
         
@@ -177,7 +177,15 @@ class TradingLearningEngine:
         
         if winning_trades:
             avg_win_confidence = statistics.mean([t.get("confidence", 75) for t in winning_trades])
-            insights["optimal_min_confidence"] = max(70, avg_win_confidence - 10)
+            insights["optimal_min_confidence"] = max(65, avg_win_confidence - 12)
+            win_entry_prices = [t.get("entry_price", 0) for t in winning_trades]
+            win_exit_prices = [t.get("exit_price", 0) for t in winning_trades]
+            if win_entry_prices and win_exit_prices:
+                avg_profit_pct = statistics.mean([
+                    (exit - entry) / entry * 100 if entry > 0 else 0 
+                    for entry, exit in zip(win_entry_prices, win_exit_prices)
+                ])
+                insights["avg_winning_profit_pct"] = round(avg_profit_pct, 2)
             
         if winning_trades and losing_trades:
             win_prebreakout_scores = [t.get("prebreakout_score", 0) for t in winning_trades]
@@ -206,7 +214,17 @@ class TradingLearningEngine:
             if avg_pnl > 0:
                 best_hours.append((hour, avg_pnl))
         best_hours.sort(key=lambda x: x[1], reverse=True)
-        insights["best_trading_hours"] = [h[0] for h in best_hours[:6]]
+        insights["best_trading_hours"] = [h[0] for h in best_hours[:8]]
+        
+        if len(self.state.trade_history_for_learning) >= 10:
+            recent_trades = self.state.trade_history_for_learning[-20:]
+            recent_wins = sum(1 for t in recent_trades if t.get("pnl", 0) >= 0)
+            insights["recent_win_rate"] = round(recent_wins / len(recent_trades) * 100, 1)
+            insights["recent_total_pnl"] = round(sum(t.get("pnl", 0) for t in recent_trades), 2)
+            
+            hold_times = [t.get("duration_seconds", 0) for t in self.state.trade_history_for_learning if t.get("pnl", 0) > 0]
+            if hold_times:
+                insights["optimal_max_hold_time"] = int(statistics.quantile(hold_times, 0.75))
         
         self.state.global_insights = insights
         self.state.last_trained = datetime.now(timezone.utc).isoformat()
