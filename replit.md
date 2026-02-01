@@ -134,6 +134,7 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- Added Telegram error alert rate limiting: Same error only sent once per 5 minutes to prevent spam (February 2026)
 - Fixed holdings persistence: Holdings now saved to and loaded from state file correctly (February 2026)
 - Fixed holdings sync: Only creates positions when sell orders are successfully placed (February 2026)
 - Added open orders sync: Fetches existing Kraken orders before placing new ones to avoid duplicate orders (February 2026)
