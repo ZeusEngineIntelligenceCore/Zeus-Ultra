@@ -22,12 +22,12 @@ class RiskLevel(Enum):
 
 @dataclass
 class RiskConfig:
-    max_risk_per_trade: float = 0.20
-    max_portfolio_risk: float = 0.50
-    max_open_positions: int = 3
-    max_position_size_pct: float = 0.40
-    max_daily_loss_pct: float = 0.15
-    max_drawdown_pct: float = 0.30
+    max_risk_per_trade: float = 0.50
+    max_portfolio_risk: float = 0.90
+    max_open_positions: int = 2
+    max_position_size_pct: float = 0.90
+    max_daily_loss_pct: float = 0.50
+    max_drawdown_pct: float = 0.80
     kelly_fraction: float = 0.25
     min_win_rate: float = 0.40
     trailing_stop_activation: float = 0.015
