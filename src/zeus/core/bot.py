@@ -89,6 +89,8 @@ class ZeusBot:
             logger.error("Failed to connect to Kraken")
             return False
         await self.telegram.initialize()
+        self.telegram.set_bot_reference(self)
+        await self.telegram.start_command_listener()
         await self.state.update_config(mode=self.mode)
         await self._refresh_balance()
         await self._refresh_pairs()
@@ -103,6 +105,7 @@ class ZeusBot:
         self.running = False
         await self.state.set_status("STOPPED")
         await self.telegram.send_bot_status("STOPPED", self.mode, 0)
+        await self.telegram.stop_command_listener()
         await self.exchange.disconnect()
         logger.info("Zeus Bot stopped.")
 
@@ -981,6 +984,7 @@ class ZeusBot:
                 logger.info(f"ML Learning cycle: {result}")
                 tg_result = self.telegram.learning_engine.run_learning_cycle()
                 logger.info(f"Telegram Learning cycle: {tg_result}")
+            await self.telegram.check_scheduled_reports()
         except Exception as e:
             logger.error(f"Cycle error: {e}")
             await self.state.increment_errors()

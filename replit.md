@@ -134,6 +134,14 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- MAJOR TELEGRAM UPGRADE: Added interactive commands (/status, /portfolio, /trades, /candidates, /performance, /settings, /help, /report) with inline keyboard buttons (February 2026)
+- Added Telegram command listener with callback query handlers for quick action buttons (February 2026)
+- Added scheduled daily/weekly performance reports at 8 PM PT (February 2026)
+- MAJOR ML UPGRADE: Added advanced feature engineering, pattern recognition, and predictive profit/loss models (February 2026)
+- Added ML predict_trade_outcome() with win probability estimation and expected PnL calculation (February 2026)
+- Added pattern cluster detection to identify winning vs losing trade characteristics (February 2026)
+- Added adaptive confidence thresholds based on recent performance and market conditions (February 2026)
+- Added comprehensive position scoring combining all ML factors (February 2026)
 - Added Telegram error alert rate limiting: Same error only sent once per 5 minutes to prevent spam (February 2026)
 - Fixed holdings persistence: Holdings now saved to and loaded from state file correctly (February 2026)
 - Fixed holdings sync: Only creates positions when sell orders are successfully placed (February 2026)
