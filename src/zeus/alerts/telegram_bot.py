@@ -260,7 +260,12 @@ class TelegramAlerts:
         self._last_message_time: Optional[datetime] = None
         self._batched_alerts: List[BatchedAlert] = []
         self._last_batch_sent: Optional[datetime] = None
-        self._urgent_types = {"error", "trade_closed", "bot_status", "trade_opened"}
+        self._urgent_types = {"trade_closed", "bot_status", "trade_opened"}
+        self._error_rate_limit: Dict[str, datetime] = {}
+        self._error_rate_limit_seconds = 300
+        self._error_count_this_hour = 0
+        self._error_count_reset_time: Optional[datetime] = None
+        self._max_errors_per_hour = 5
         self.learning_engine = TelegramLearningEngine()
 
     async def initialize(self) -> bool:
@@ -530,13 +535,35 @@ class TelegramAlerts:
         return await self.send_message(message.strip(), alert_type="daily_summary")
 
     async def send_error_alert(self, error_type: str, message: str) -> bool:
+        import re
+        normalized_msg = re.sub(r'[0-9a-f]{8,}|[0-9]+\.[0-9]+|0x[0-9a-f]+', 'X', message[:100].lower())
+        error_key = f"{error_type}:{normalized_msg}"
+        now = datetime.now(timezone.utc)
+        if self._error_count_reset_time is None or (now - self._error_count_reset_time).total_seconds() > 3600:
+            self._error_count_reset_time = now
+            self._error_count_this_hour = 0
+        if self._error_count_this_hour >= self._max_errors_per_hour:
+            logger.debug(f"Global error limit reached ({self._max_errors_per_hour}/hour)")
+            return False
+        if error_key in self._error_rate_limit:
+            last_sent = self._error_rate_limit[error_key]
+            if (now - last_sent).total_seconds() < self._error_rate_limit_seconds:
+                logger.debug(f"Rate limiting error alert: {error_type}")
+                return False
+        self._error_rate_limit[error_key] = now
+        self._error_count_this_hour += 1
+        if len(self._error_rate_limit) > 100:
+            oldest_keys = sorted(self._error_rate_limit.keys(), 
+                                 key=lambda k: self._error_rate_limit[k])[:50]
+            for k in oldest_keys:
+                del self._error_rate_limit[k]
         alert = f"""
 ⚠️ <b>ZEUS ERROR ALERT</b>
 
 <b>Type:</b> {error_type}
 <b>Message:</b> {message}
 
-⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
+⏰ {now.strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
         return await self.send_message(alert.strip(), alert_type="error")
 
