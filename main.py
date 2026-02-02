@@ -9,6 +9,7 @@ import os
 import sys
 import threading
 import json
+from pathlib import Path
 from datetime import datetime
 import pytz
 
@@ -67,16 +68,22 @@ def status():
     with bot_lock:
         status_copy = bot_status.copy()
         status_copy["current_time"] = format_la_time()
+        
+        state_loaded = False
         if bot_instance and bot_instance.running:
             try:
                 state = bot_instance.get_status()
-                status_copy["balance"] = state.get("balance", 0)
+                stats = state.get("stats", {})
+                holdings = state.get("holdings", {})
+                status_copy["balance"] = stats.get("equity", 0)
+                status_copy["holdings_count"] = len([k for k, v in holdings.items() if k not in ("USD", "ZUSD", "USDT", "USDC") and v > 0.0001])
                 status_copy["active_trades"] = len(state.get("active_trades", {}))
                 status_copy["candidates_count"] = len(state.get("candidates", []))
-                status_copy["total_profit"] = state.get("total_profit", 0)
+                status_copy["total_profit"] = stats.get("total_pnl", 0)
                 status_copy["cycle_count"] = state.get("cycle_count", 0)
-                status_copy["wins"] = state.get("wins", 0)
-                status_copy["losses"] = state.get("losses", 0)
+                status_copy["wins"] = stats.get("wins", 0)
+                status_copy["losses"] = stats.get("losses", 0)
+                status_copy["mode"] = stats.get("mode", status_copy.get("mode", "UNKNOWN"))
                 if hasattr(bot_instance, 'alt_data') and bot_instance.alt_data:
                     fg = bot_instance.alt_data.get_fear_greed()
                     if fg:
@@ -84,8 +91,28 @@ def status():
                             "value": fg.value,
                             "classification": fg.classification
                         }
+                state_loaded = True
+            except Exception as e:
+                pass
+        
+        if not state_loaded:
+            try:
+                state_file = Path("data/bot_state.json")
+                if state_file.exists():
+                    with open(state_file, 'r') as f:
+                        data = json.load(f)
+                    status_copy["balance"] = round(data.get("equity", 0), 2)
+                    holdings = data.get("holdings", {})
+                    status_copy["holdings_count"] = len([k for k, v in holdings.items() if k not in ("USD", "ZUSD", "USDT", "USDC") and v > 0.0001])
+                    status_copy["active_trades"] = len(data.get("active_trades", {}))
+                    status_copy["total_profit"] = round(data.get("total_pnl", 0), 2)
+                    status_copy["wins"] = data.get("wins", 0)
+                    status_copy["losses"] = data.get("losses", 0)
+                    config = data.get("config", {})
+                    status_copy["mode"] = config.get("mode", status_copy.get("mode", "UNKNOWN"))
             except Exception:
                 pass
+                
     return jsonify(status_copy), 200
 
 
@@ -247,11 +274,41 @@ def api_analyze_coin(symbol):
     if not symbol.endswith("USD"):
         symbol = f"{symbol}USD"
     
+    async def find_valid_pair(exchange, base_symbol):
+        """Try different Kraken pair formats to find a valid one"""
+        markets = await exchange.fetch_markets()
+        if not markets:
+            return base_symbol
+        
+        base = base_symbol.replace("USD", "")
+        possible_names = [
+            base_symbol,
+            f"X{base}ZUSD",
+            f"X{base}USD",
+            f"{base}ZUSD",
+        ]
+        
+        for name in possible_names:
+            if name in markets:
+                return name
+        
+        for pair_name in markets.keys():
+            if pair_name.upper().endswith("USD"):
+                pair_base = pair_name.replace("USD", "").replace("ZUSD", "").lstrip("X")
+                if pair_base.upper() == base.upper():
+                    return pair_name
+        
+        return base_symbol
+    
     async def run_analysis():
+        nonlocal symbol
         try:
             exchange = bot_instance.exchange
             prebreakout = bot_instance.prebreakout
             math_kernel = prebreakout.math
+            
+            valid_symbol = await find_valid_pair(exchange, symbol)
+            symbol = valid_symbol
             
             timeframes = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
             all_analysis = {}

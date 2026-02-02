@@ -30,8 +30,9 @@ Zeus is built around a modular architecture with a core trading engine supported
 - **AI/ML Learning System**: Features dual learning engines for the trading bot and Telegram. These engines track performance by symbol, strategy, and time of day, adapt confidence thresholds, detect anomalies, and continuously improve decision-making based on trade outcomes and user interactions.
 - **Trading Configuration**: Supports a maximum of 100 open positions, a minimum profit target of 3-4%, continuous holdings monitoring, full market scans every 300 seconds, and position scans every 60 seconds.
 - **Authentication**: Uses Replit Auth for user authentication, supporting various social logins and email/password, with protected routes.
-- **Production Server**: Employs a Gunicorn WSGI production server.
+- **Production Server**: Employs a Gunicorn WSGI production server with 1 worker and 4 threads.
 - **Timezone**: All timestamps are configured for Los Angeles timezone (America/Los_Angeles).
+- **State Persistence**: Bot state (equity, holdings, trades) is persisted to `data/bot_state.json` and used as fallback for API responses when the in-memory bot instance isn't directly accessible (gunicorn process isolation).
 
 ### Feature Specifications
 - **Pre-Breakout Detection**: 30 KPI scoring system for high-precision signal generation.
