@@ -285,13 +285,19 @@ def api_analyze_coin(symbol):
             if not all_analysis:
                 return {"error": f"Could not fetch data for {symbol}. Make sure it's a valid Kraken trading pair."}
             
-            primary_tf = all_analysis.get("15m") or all_analysis.get("1h") or list(all_analysis.values())[0]
+            valid_analyses = {k: v for k, v in all_analysis.items() if "error" not in v and v.get("current_price", 0) > 0}
+            
+            if not valid_analyses:
+                error_msgs = [f"{k}: {v.get('error', 'No data')}" for k, v in all_analysis.items() if "error" in v]
+                return {"error": f"Failed to fetch data for {symbol}. Kraken API may be temporarily unavailable. " + (error_msgs[0] if error_msgs else "")}
+            
+            primary_tf = valid_analyses.get("15m") or valid_analyses.get("1h") or list(valid_analyses.values())[0]
             
             return {
                 "symbol": symbol,
                 "timestamp": format_la_time(),
                 "primary_analysis": primary_tf,
-                "timeframes": all_analysis,
+                "timeframes": valid_analyses,
                 "kpi_count": primary_tf.get("kpi_count", 30),
                 "success": True
             }
