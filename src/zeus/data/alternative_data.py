@@ -331,6 +331,10 @@ class AlternativeDataAggregator:
         self.last_update: Optional[datetime] = None
         self.cached_signal: Optional[AlternativeDataSignal] = None
     
+    def get_fear_greed(self) -> Optional[FearGreedData]:
+        """Get cached fear/greed data synchronously (no API call)"""
+        return self.fear_greed.cache
+    
     async def update_fear_greed(self) -> Optional[FearGreedData]:
         return await self.fear_greed.fetch()
     

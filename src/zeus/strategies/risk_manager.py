@@ -158,30 +158,63 @@ class RiskManager:
         stop_loss: float,
         confidence: float = 100.0
     ) -> float:
+        """
+        Calculate position size with aggressive confidence-based scaling.
+        Higher confidence = significantly larger positions.
+        
+        Confidence tiers (with aggressive risk level):
+        - 90-100%: Uses up to 150% of base risk (max power)
+        - 75-90%:  Uses up to 100% of base risk
+        - 60-75%:  Uses up to 75% of base risk
+        - 50-60%:  Uses up to 50% of base risk
+        - Below 50%: Uses 25% of base risk (minimum)
+        """
         if entry_price <= 0 or stop_loss <= 0:
             return 0.0
         risk_per_unit = abs(entry_price - stop_loss)
         if risk_per_unit <= 0:
             return 0.0
+        
         base_risk = self.config.max_risk_per_trade
         if self.config.risk_level == RiskLevel.CONSERVATIVE:
             base_risk *= 0.5
         elif self.config.risk_level == RiskLevel.AGGRESSIVE:
             base_risk *= 1.5
-        confidence_factor = min(1.0, confidence / 100.0)
-        adjusted_risk = base_risk * (0.5 + 0.5 * confidence_factor)
+        
+        confidence_factor = min(1.0, max(0.0, confidence / 100.0))
+        
+        if confidence_factor >= 0.90:
+            conf_multiplier = 1.3 + (confidence_factor - 0.90) * 2.0
+        elif confidence_factor >= 0.75:
+            conf_multiplier = 1.0 + (confidence_factor - 0.75) * 2.0
+        elif confidence_factor >= 0.60:
+            conf_multiplier = 0.70 + (confidence_factor - 0.60) * 2.0
+        elif confidence_factor >= 0.50:
+            conf_multiplier = 0.50 + (confidence_factor - 0.50) * 2.0
+        else:
+            conf_multiplier = 0.25 + confidence_factor * 0.5
+        
+        conf_multiplier = min(1.5, max(0.25, conf_multiplier))
+        
+        adjusted_risk = base_risk * conf_multiplier
+        adjusted_risk = min(adjusted_risk, self.config.max_risk_per_trade)
+        
         if self.portfolio.stats.consecutive_losses >= 3:
             adjusted_risk *= 0.5
         if self.portfolio.drawdown > 0.05:
             drawdown_factor = 1 - (self.portfolio.drawdown / self.config.max_drawdown_pct)
             adjusted_risk *= max(0.25, drawdown_factor)
+        
         risk_amount = self.portfolio.equity * adjusted_risk
         position_size = risk_amount / risk_per_unit
+        
         max_size_by_pct = (self.portfolio.equity * self.config.max_position_size_pct) / entry_price
         position_size = min(position_size, max_size_by_pct)
+        
         remaining_exposure = (self.portfolio.equity * self.config.max_portfolio_risk * 10) - self.portfolio.total_exposure
         max_size_by_exposure = remaining_exposure / entry_price
         position_size = min(position_size, max(0, max_size_by_exposure))
+        
         return max(0, position_size)
 
     def calculate_kelly_size(

@@ -124,17 +124,55 @@ def api_holdings():
     try:
         state = bot_instance.get_status()
         holdings_data = state.get("holdings", {})
+        price_cache = getattr(bot_instance.exchange, '_ticker_cache', {})
         holdings = []
+        
+        skip_symbols = {"USD", "ZUSD", "EUR", "ZEUR", "USDT", "USDC", "DAI"}
+        
         for symbol, amount in holdings_data.items():
-            if symbol in ["USD", "ZUSD", "EUR", "ZEUR"] or amount < 0.0001:
+            if symbol in skip_symbols or amount < 0.0001:
                 continue
+            
+            clean_symbol = symbol
+            for prefix in ("X", "Z"):
+                if clean_symbol.startswith(prefix) and len(clean_symbol) > 3:
+                    clean_symbol = clean_symbol[1:]
+                    break
+            
+            price = 0.0
+            value_usd = 0.0
+            
+            for pair_suffix in ["USD", "USDT", "USDC"]:
+                cache_key = f"{symbol}{pair_suffix}"
+                if cache_key in price_cache:
+                    cached = price_cache[cache_key]
+                    if hasattr(cached, 'last'):
+                        price = cached.last
+                    elif isinstance(cached, dict):
+                        price = cached.get('last', cached.get('price', 0))
+                    if price > 0:
+                        break
+            
+            if price == 0 and hasattr(bot_instance, 'state'):
+                active_trades = state.get("active_trades", {})
+                for trade_id, trade in active_trades.items():
+                    trade_symbol = trade.get("symbol", "")
+                    if trade_symbol.startswith(symbol) or trade_symbol.startswith(clean_symbol):
+                        price = trade.get("entry_price", 0)
+                        if price > 0:
+                            break
+            
+            value_usd = amount * price if price > 0 else 0
+            
             holdings.append({
                 "symbol": symbol,
                 "amount": amount,
-                "value_usd": 0,
+                "price": price,
+                "value_usd": value_usd,
                 "pnl_pct": 0
             })
-        holdings.sort(key=lambda x: x["amount"], reverse=True)
+        
+        holdings.sort(key=lambda x: x.get("value_usd", 0), reverse=True)
         return jsonify({"holdings": holdings[:20], "count": len(holdings)}), 200
     except Exception as e:
         return jsonify({"holdings": [], "error": str(e)}), 200
@@ -220,7 +258,7 @@ def api_analyze_coin(symbol):
             
             for tf_name, tf_minutes in timeframes.items():
                 try:
-                    ohlcv = await exchange.get_ohlcv(symbol, tf_minutes, limit=500)
+                    ohlcv = await exchange.fetch_ohlcv(symbol, tf_name, limit=500)
                     if not ohlcv or len(ohlcv) < 50:
                         continue
                     
@@ -235,12 +273,12 @@ def api_analyze_coin(symbol):
                     macd_line, signal_line, macd_hist = math_kernel.macd(close)
                     bb_upper, bb_mid, bb_lower = math_kernel.bollinger_bands(close)
                     atr = math_kernel.atr(high, low, close)
-                    stoch_k, stoch_d = math_kernel.stochastic(high, low, close)
+                    stoch_k, stoch_d = math_kernel.stochastic_rsi(close)
                     ema9 = math_kernel.ema(close, 9)
                     ema20 = math_kernel.ema(close, 20)
                     ema50 = math_kernel.ema(close, 50)
                     sma200 = math_kernel.sma(close, 200)
-                    adx = math_kernel.adx(high, low, close)
+                    adx_val, plus_di, minus_di = math_kernel.adx(high, low, close)
                     
                     analysis["technical_indicators"] = {
                         "rsi": round(rsi, 2),
@@ -259,7 +297,9 @@ def api_analyze_coin(symbol):
                         "ema_20": round(ema20, 8),
                         "ema_50": round(ema50, 8),
                         "sma_200": round(sma200, 8),
-                        "adx": round(adx, 2)
+                        "adx": round(adx_val, 2),
+                        "plus_di": round(plus_di, 2),
+                        "minus_di": round(minus_di, 2)
                     }
                     
                     price_change_24h = ((close[-1] - close[-min(24, len(close))]) / close[-min(24, len(close))]) * 100 if len(close) > 24 else 0
@@ -332,7 +372,7 @@ def api_analyze_to_telegram(symbol):
             exchange = bot_instance.exchange
             prebreakout = bot_instance.prebreakout
             
-            ohlcv = await exchange.get_ohlcv(symbol, 15, limit=500)
+            ohlcv = await exchange.fetch_ohlcv(symbol, "15m", limit=500)
             if not ohlcv or len(ohlcv) < 50:
                 return {"error": f"Insufficient data for {symbol}"}
             

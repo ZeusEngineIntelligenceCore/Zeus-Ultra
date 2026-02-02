@@ -1007,7 +1007,7 @@ Tap the button below to open:
             exchange = bot.exchange
             prebreakout = bot.prebreakout
             
-            ohlcv = await exchange.get_ohlcv(symbol, 15, limit=500)
+            ohlcv = await exchange.fetch_ohlcv(symbol, "15m", limit=500)
             if not ohlcv or len(ohlcv) < 50:
                 await update.message.reply_text(
                     f"⚠️ Insufficient data for {symbol}. Make sure it's a valid Kraken trading pair.",
