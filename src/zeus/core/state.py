@@ -50,6 +50,8 @@ class TradeRecord:
     protected: bool = False
     sell_order_id: Optional[str] = None
     mtf_alignment: float = 0.0
+    sell_order_attempts: int = 0
+    synced: bool = False
 
 
 @dataclass

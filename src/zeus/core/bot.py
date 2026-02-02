@@ -88,6 +88,8 @@ class ZeusBot:
         if not await self.exchange.connect():
             logger.error("Failed to connect to Kraken")
             return False
+        self.advanced_risk.reset_circuit_breaker()
+        self.advanced_risk.reset_daily_stats()
         await self.telegram.initialize()
         self.telegram.set_bot_reference(self)
         await self.telegram.start_command_listener()
@@ -138,14 +140,24 @@ class ZeusBot:
     async def _sync_holdings_with_positions(self, holdings: Dict[str, float]) -> None:
         """Ensure all token holdings are tracked - no unaccounted tokens"""
         tracked_symbols = self.state.get_active_symbols()
+        
+        already_synced = set()
+        for trade in self.state.get_open_trades():
+            if trade.synced or trade.strategy == "synced":
+                token = trade.symbol.replace("USD", "").replace("USDT", "").replace("USDC", "")
+                already_synced.add(token)
+        
         for token, amount in holdings.items():
-            if token in ["USD", "ZUSD", "EUR", "ZEUR"]:
+            if token in ["USD", "ZUSD", "EUR", "ZEUR", "USDC", "USDT"]:
                 continue
             if amount < 0.00001:
+                continue
+            if token in already_synced:
                 continue
             pair = f"{token}USD"
             if pair not in tracked_symbols and token not in tracked_symbols:
                 try:
+                    await asyncio.sleep(0.3)
                     ticker = await self.exchange.fetch_ticker(pair)
                     if ticker and ticker.last > 0:
                         logger.info(f"Found untracked holding: {token} = {amount}, creating position record")
@@ -164,14 +176,21 @@ class ZeusBot:
                             confidence=50.0,
                             prebreakout_score=0.0,
                             is_manual=True,
-                            protected=True
+                            protected=True,
+                            synced=True
                         )
                         sell_order_id = await self._place_limit_sell(pair, amount, take_profit)
                         if sell_order_id:
                             trade.sell_order_id = sell_order_id
                             await self.state.open_trade(trade)
+                            logger.info(f"Synced {token} with sell order {sell_order_id}")
                         else:
-                            logger.warning(f"Could not place sell order for {token}, skipping (tokens may be locked or staked)")
+                            trade.sell_order_attempts += 1
+                            if trade.sell_order_attempts < 3:
+                                await self.state.open_trade(trade)
+                                logger.info(f"Synced {token} without sell order (will retry later)")
+                            else:
+                                logger.warning(f"Could not place sell order for {token}, skipping (tokens may be locked or staked)")
                 except Exception as e:
                     logger.debug(f"Could not sync {token}: {e}")
 
@@ -226,25 +245,31 @@ class ZeusBot:
             return current_price * 1.08, current_price * 0.92
 
     def _round_price_for_kraken(self, symbol: str, price: float) -> float:
-        """Round price to appropriate decimal places for Kraken based on price magnitude"""
-        if price >= 1000:
+        """Round price to appropriate decimal places for Kraken based on price magnitude
+        
+        Kraken has strict precision requirements per pair. Most pairs allow fewer decimals
+        than the price magnitude suggests. We use conservative rounding to avoid rejection.
+        """
+        if price >= 10000:
+            return round(price, 1)
+        elif price >= 1000:
             return round(price, 2)
         elif price >= 100:
+            return round(price, 2)
+        elif price >= 10:
             return round(price, 3)
         elif price >= 1:
-            return round(price, 4)
+            return round(price, 3)
         elif price >= 0.1:
             return round(price, 4)
         elif price >= 0.01:
-            return round(price, 5)
+            return round(price, 4)
         elif price >= 0.001:
             return round(price, 5)
         elif price >= 0.0001:
             return round(price, 6)
-        elif price >= 0.00001:
-            return round(price, 7)
         else:
-            return round(price, 8)
+            return round(price, 6)
 
     async def _place_limit_sell(self, symbol: str, size: float, price: float) -> Optional[str]:
         """Place a limit sell order on the exchange"""
@@ -413,6 +438,8 @@ class ZeusBot:
             port_risk = self.advanced_risk.assess_portfolio_risk(positions, portfolio_value)
             if port_risk.circuit_breaker_active:
                 logger.warning("CIRCUIT BREAKER: Trading halted due to risk limits")
+                self._last_full_scan = time.time()
+                await self.state.set_status("PAUSED_CIRCUIT_BREAKER")
                 return []
         if time.time() - self._last_pair_refresh > 3600:
             await self._refresh_pairs()
@@ -1023,7 +1050,7 @@ class ZeusBot:
                     await self.manage_positions()
                 next_position = max(0, position_interval - (time.time() - self._last_position_scan))
                 next_full = max(0, full_scan_interval - (time.time() - self._last_full_scan))
-                sleep_time = min(next_position, next_full, 30)
+                sleep_time = max(5, min(next_position, next_full, 30))
                 logger.info(f"Next position scan: {int(next_position)}s | Next full scan: {int(next_full)}s | Sleeping {int(sleep_time)}s...")
                 await asyncio.sleep(sleep_time)
         except KeyboardInterrupt:

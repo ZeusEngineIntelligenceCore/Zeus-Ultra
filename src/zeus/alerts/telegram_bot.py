@@ -275,6 +275,9 @@ class BatchedAlert:
 
 
 class TelegramAlerts:
+    _polling_instance = None
+    _polling_lock = None
+    
     def __init__(self, token: str, chat_id: str, config: Optional[AlertConfig] = None):
         self.token = token
         self.chat_id = chat_id
@@ -295,6 +298,7 @@ class TelegramAlerts:
         self.learning_engine = TelegramLearningEngine()
         self._bot_ref = None
         self._commands_registered = False
+        self._polling_active = False
 
     async def initialize(self) -> bool:
         if not TELEGRAM_AVAILABLE:
@@ -1109,16 +1113,22 @@ Tap the button below to open:
     async def start_command_listener(self) -> None:
         if not TELEGRAM_AVAILABLE or self._commands_registered:
             return
+        if TelegramAlerts._polling_instance is not None and TelegramAlerts._polling_instance != self:
+            logger.warning("Another Telegram polling instance exists, stopping it first")
+            await TelegramAlerts._polling_instance.stop_command_listener()
+            await asyncio.sleep(5)
+        TelegramAlerts._polling_instance = self
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 await self.stop_command_listener()
-                await asyncio.sleep(2)
+                TelegramAlerts._polling_instance = self
+                await asyncio.sleep(3 + attempt * 2)
                 if self.bot:
                     try:
                         await self.bot.delete_webhook(drop_pending_updates=True)
                         logger.info("Deleted any existing webhook before starting polling")
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(5)
                     except Exception as e:
                         logger.warning(f"Could not delete webhook: {e}")
                 self.app = Application.builder().token(self.token).build()
@@ -1141,7 +1151,8 @@ Tap the button below to open:
                 await self._register_bot_commands()
                 await self.app.updater.start_polling(
                     drop_pending_updates=True,
-                    allowed_updates=["message", "callback_query"]
+                    allowed_updates=["message", "callback_query"],
+                    poll_interval=2.0
                 )
                 logger.info("Telegram command listener started successfully")
                 return
@@ -1149,14 +1160,16 @@ Tap the button below to open:
                 error_str = str(e)
                 if "Conflict" in error_str:
                     if attempt < max_retries - 1:
-                        wait_time = (attempt + 1) * 5
-                        logger.warning(f"Telegram polling conflict - waiting {wait_time}s before retry {attempt + 2}/{max_retries}")
-                        await asyncio.sleep(wait_time)
+                        wait_time = 10 + (attempt * 10)
+                        logger.warning(f"Telegram polling conflict - waiting {wait_time}s for old session to timeout (retry {attempt + 2}/{max_retries})")
+                        self.app = None
                         self._commands_registered = False
+                        await asyncio.sleep(wait_time)
                         continue
                     else:
-                        logger.warning("Telegram polling conflict persists - operating in send-only mode")
+                        logger.warning("Telegram polling conflict persists - operating in send-only mode (commands disabled)")
                         self._commands_registered = True
+                        self._polling_active = False
                         return
                 elif "Unauthorized" in error_str:
                     logger.error("Telegram bot token is invalid")
@@ -1191,14 +1204,22 @@ Tap the button below to open:
             logger.warning(f"Could not register bot commands: {e}")
 
     async def stop_command_listener(self) -> None:
+        self._polling_active = False
+        TelegramAlerts._polling_instance = None
         if self.app:
             try:
-                await self.app.updater.stop()
-                await self.app.stop()
+                if self.app.updater and self.app.updater.running:
+                    await self.app.updater.stop()
+                if self.app.running:
+                    await self.app.stop()
                 await self.app.shutdown()
-                logger.info("Telegram command listener stopped")
+                self.app = None
+                self._commands_registered = False
+                logger.info("Telegram command listener stopped and cleaned up")
             except Exception as e:
                 logger.error(f"Error stopping command listener: {e}")
+                self.app = None
+                self._commands_registered = False
 
     async def check_scheduled_reports(self) -> bool:
         if not self.config.send_daily_summary or not self._bot_ref:

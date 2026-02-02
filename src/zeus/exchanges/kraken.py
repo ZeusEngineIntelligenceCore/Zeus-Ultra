@@ -116,52 +116,86 @@ class KrakenExchange(ExchangeBase):
         signature = hmac.new(base64.b64decode(self.api_secret), message, hashlib.sha512)
         return base64.b64encode(signature.digest()).decode()
 
-    async def _public_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Any]:
+    async def _public_request(self, endpoint: str, params: Optional[Dict] = None, max_retries: int = 3) -> Optional[Any]:
         if not self.session:
             raise RuntimeError("Session not initialized")
-        async with self.rate_limiter:
-            try:
-                url = f"{self.BASE_URL}{endpoint}"
-                async with self.session.get(url, params=params) as resp:
-                    if resp.status != 200:
-                        logger.error(f"HTTP {resp.status}: {await resp.text()}")
-                        return None
-                    data = await resp.json()
-                    if data.get("error"):
-                        logger.error(f"Kraken API Error: {data['error']}")
-                        return None
-                    return data.get("result")
-            except Exception as e:
-                logger.error(f"Request failed: {e}")
-                return None
+        
+        for attempt in range(max_retries):
+            async with self.rate_limiter:
+                try:
+                    url = f"{self.BASE_URL}{endpoint}"
+                    async with self.session.get(url, params=params) as resp:
+                        if resp.status == 429 or resp.status >= 500:
+                            backoff = (2 ** attempt) + 1
+                            logger.warning(f"HTTP {resp.status}, backing off {backoff}s (attempt {attempt + 1}/{max_retries})")
+                            await asyncio.sleep(backoff)
+                            continue
+                        if resp.status != 200:
+                            logger.error(f"HTTP {resp.status}: {await resp.text()}")
+                            return None
+                        data = await resp.json()
+                        if data.get("error"):
+                            errors = data["error"]
+                            if any("Too many requests" in str(e) for e in errors):
+                                backoff = (2 ** attempt) + 1
+                                logger.warning(f"Rate limited, backing off {backoff}s (attempt {attempt + 1}/{max_retries})")
+                                await asyncio.sleep(backoff)
+                                continue
+                            logger.error(f"Kraken API Error: {errors}")
+                            return None
+                        return data.get("result")
+                except Exception as e:
+                    logger.error(f"Request failed: {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1)
+                        continue
+                    return None
+        return None
 
-    async def _private_request(self, endpoint: str, data: Optional[Dict] = None) -> Optional[Any]:
+    async def _private_request(self, endpoint: str, data: Optional[Dict] = None, max_retries: int = 3) -> Optional[Any]:
         if not self.session:
             raise RuntimeError("Session not initialized")
         if not self.api_key or not self.api_secret:
             raise RuntimeError("API credentials required for private endpoints")
-        data = data or {}
-        data["nonce"] = self._get_nonce()
-        async with self.private_rate_limiter:
-            try:
-                url = f"{self.BASE_URL}{endpoint}"
-                headers = {
-                    "API-Key": self.api_key,
-                    "API-Sign": self._sign_request(endpoint, data),
-                    "Content-Type": "application/x-www-form-urlencoded"
-                }
-                async with self.session.post(url, data=data, headers=headers) as resp:
-                    if resp.status != 200:
-                        logger.error(f"HTTP {resp.status}: {await resp.text()}")
-                        return None
-                    result = await resp.json()
-                    if result.get("error"):
-                        logger.error(f"Kraken API Error: {result['error']}")
-                        return None
-                    return result.get("result")
-            except Exception as e:
-                logger.error(f"Private request failed: {e}")
-                return None
+        
+        for attempt in range(max_retries):
+            request_data = (data or {}).copy()
+            request_data["nonce"] = self._get_nonce()
+            async with self.private_rate_limiter:
+                try:
+                    url = f"{self.BASE_URL}{endpoint}"
+                    headers = {
+                        "API-Key": self.api_key,
+                        "API-Sign": self._sign_request(endpoint, request_data),
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    }
+                    async with self.session.post(url, data=request_data, headers=headers) as resp:
+                        if resp.status == 429 or resp.status >= 500:
+                            backoff = (2 ** attempt) + 1
+                            logger.warning(f"HTTP {resp.status}, backing off {backoff}s (attempt {attempt + 1}/{max_retries})")
+                            await asyncio.sleep(backoff)
+                            continue
+                        if resp.status != 200:
+                            logger.error(f"HTTP {resp.status}: {await resp.text()}")
+                            return None
+                        result = await resp.json()
+                        if result.get("error"):
+                            errors = result["error"]
+                            if any("Too many requests" in str(e) or "EGeneral:Too many requests" in str(e) for e in errors):
+                                backoff = (2 ** attempt) + 1
+                                logger.warning(f"Rate limited, backing off {backoff}s (attempt {attempt + 1}/{max_retries})")
+                                await asyncio.sleep(backoff)
+                                continue
+                            logger.error(f"Kraken API Error: {errors}")
+                            return None
+                        return result.get("result")
+                except Exception as e:
+                    logger.error(f"Private request failed: {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1)
+                        continue
+                    return None
+        return None
 
     async def fetch_ticker(self, symbol: str) -> Optional[Ticker]:
         result = await self._public_request("/0/public/Ticker", {"pair": symbol})
