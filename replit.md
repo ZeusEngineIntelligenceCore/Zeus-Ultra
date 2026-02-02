@@ -134,6 +134,9 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- COIN ANALYZER: Added full 30 KPI coin analysis feature with dashboard input, /analyze Telegram command, and Mini App (February 2026)
+- NEW FEATURES: Dashboard coin analyzer panel, API endpoint for analysis, send-to-Telegram functionality (February 2026)
+- TELEGRAM MINI APP: Created /miniapp page for interactive coin analysis inside Telegram (February 2026)
 - DASHBOARD COMMAND: Added /dashboard command and inline button to open web dashboard directly from Telegram (February 2026)
 - TELEGRAM COMMAND FIX: Fixed 'trading_mode' attribute error - /status now uses bot.mode correctly (February 2026)
 - Enhanced /status command to show persisted status, last scan time, and proper pairs count (February 2026)

@@ -829,6 +829,7 @@ class TelegramAlerts:
 <b>Available Commands:</b>
 
 /dashboard - Open web dashboard
+/analyze &lt;symbol&gt; - Full 30 KPI analysis
 /status - View bot status & stats
 /portfolio - View token holdings
 /trades - View active trades
@@ -837,6 +838,10 @@ class TelegramAlerts:
 /settings - View current settings
 /report - Get performance report
 /help - Show this help message
+
+<b>Analyzer Examples:</b>
+/analyze BTC - Analyze Bitcoin
+/analyze FIS - Analyze FIS token
 
 <b>Quick Actions:</b>
 Use the buttons below messages for quick navigation.
@@ -978,6 +983,129 @@ Tap the button below to open:
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
+    async def cmd_analyze(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not context.args:
+            await update.message.reply_text(
+                "🔬 <b>Coin Analyzer</b>\n\nUsage: /analyze &lt;symbol&gt;\n\nExample: /analyze BTC\n\nThis will run a full 30 KPI analysis across 5 timeframes.",
+                parse_mode="HTML",
+                reply_markup=self.get_main_keyboard()
+            )
+            return
+        
+        symbol = context.args[0].upper().strip()
+        if not symbol.endswith("USD"):
+            symbol = f"{symbol}USD"
+        
+        await update.message.reply_text(f"🔬 Analyzing <b>{symbol}</b>...\n\nRunning 30 KPIs across 5 timeframes. Please wait...", parse_mode="HTML")
+        
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available for analysis", reply_markup=self.get_main_keyboard())
+            return
+        
+        try:
+            bot = self._bot_ref
+            exchange = bot.exchange
+            prebreakout = bot.prebreakout
+            
+            ohlcv = await exchange.get_ohlcv(symbol, 15, limit=500)
+            if not ohlcv or len(ohlcv) < 50:
+                await update.message.reply_text(
+                    f"⚠️ Insufficient data for {symbol}. Make sure it's a valid Kraken trading pair.",
+                    reply_markup=self.get_main_keyboard()
+                )
+                return
+            
+            high = [c.high for c in ohlcv]
+            low = [c.low for c in ohlcv]
+            close = [c.close for c in ohlcv]
+            volume = [c.volume for c in ohlcv]
+            
+            analysis = await prebreakout.analyze(symbol, high, low, close, volume)
+            
+            score = analysis.get("prebreakout_score", 0)
+            stage = analysis.get("stage", "UNKNOWN")
+            confidence = analysis.get("confidence", 0)
+            price = analysis.get("current_price", 0)
+            features = analysis.get("features", {})
+            reasons = analysis.get("reasons", [])
+            
+            stage_emoji = {
+                "BREAKOUT": "🚀",
+                "LATE_PRE-BREAKOUT": "🔥",
+                "PRE-BREAKOUT": "⚡",
+                "EARLY_SETUP": "📊",
+                "ACCUMULATION": "🔄",
+                "DORMANT": "💤"
+            }.get(stage, "📈")
+            
+            msg_lines = [
+                f"🔬 <b>ZEUS COIN ANALYSIS</b>",
+                f"━━━━━━━━━━━━━━━━━━━━",
+                f"",
+                f"<b>Symbol:</b> {symbol}",
+                f"<b>Price:</b> ${price:.8f}" if price < 1 else f"<b>Price:</b> ${price:.4f}",
+                f"<b>Stage:</b> {stage_emoji} {stage}",
+                f"<b>Score:</b> {score:.1f}/100",
+                f"<b>Confidence:</b> {confidence:.1f}%",
+                f"",
+                f"━━━ <b>TOP KPIs</b> ━━━"
+            ]
+            
+            top_kpis = [
+                ("RSI", features.get("rsi", 0)),
+                ("Momentum", features.get("momentum_cf", 0)),
+                ("Pressure", features.get("pressure", 0)),
+                ("Impulse", features.get("impulse", 0)),
+                ("Squeeze", features.get("squeeze", 0)),
+                ("ADX", features.get("adx_strength", 0)),
+                ("Supertrend", features.get("supertrend_conf", 0)),
+                ("Aroon", features.get("aroon_signal", 0)),
+                ("Williams %R", features.get("williams_r", 0)),
+                ("MFI", features.get("mfi_signal", 0)),
+                ("OBV", features.get("obv_trend", 0)),
+                ("Fibonacci", features.get("fibonacci_level", 0))
+            ]
+            
+            for name, val in top_kpis:
+                pct = val * 100
+                emoji = "🟢" if pct >= 60 else "🟡" if pct >= 40 else "🔴"
+                bar = "█" * int(val * 10) + "░" * (10 - int(val * 10))
+                msg_lines.append(f"{emoji} {name}: {bar} {pct:.0f}%")
+            
+            if reasons:
+                msg_lines.append("")
+                msg_lines.append("━━━ <b>SIGNALS</b> ━━━")
+                for reason in reasons[:5]:
+                    msg_lines.append(f"✅ {reason}")
+            
+            msg_lines.extend([
+                "",
+                f"━━━ <b>TRADE LEVELS</b> ━━━",
+                f"🎯 Entry: ${analysis.get('buy_anchor', 0):.8f}" if price < 1 else f"🎯 Entry: ${analysis.get('buy_anchor', 0):.4f}",
+                f"🛑 Stop: ${analysis.get('stop_loss', 0):.8f}" if price < 1 else f"🛑 Stop: ${analysis.get('stop_loss', 0):.4f}",
+                f"💰 Target: ${analysis.get('take_profit', 0):.8f}" if price < 1 else f"💰 Target: ${analysis.get('take_profit', 0):.4f}",
+                "",
+                f"⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC"
+            ])
+            
+            message = "\n".join(msg_lines)
+            
+            miniapp_url = self.get_dashboard_url().replace('/dashboard', '/miniapp')
+            keyboard = [[InlineKeyboardButton("🔬 Open Analyzer", url=miniapp_url)]]
+            
+            await update.message.reply_text(
+                message,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+        except Exception as e:
+            logger.error(f"Analyze command error: {e}")
+            await update.message.reply_text(
+                f"⚠️ Error analyzing {symbol}: {str(e)[:100]}",
+                reply_markup=self.get_main_keyboard()
+            )
+
     async def start_command_listener(self) -> None:
         if not TELEGRAM_AVAILABLE or self._commands_registered:
             return
@@ -1004,6 +1132,7 @@ Tap the button below to open:
                 self.app.add_handler(CommandHandler("help", self.cmd_help))
                 self.app.add_handler(CommandHandler("report", self.cmd_report))
                 self.app.add_handler(CommandHandler("dashboard", self.cmd_dashboard))
+                self.app.add_handler(CommandHandler("analyze", self.cmd_analyze))
                 self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
                 self._commands_registered = True
                 logger.info("Telegram command handlers registered")
@@ -1043,6 +1172,7 @@ Tap the button below to open:
                 commands = [
                     BotCommand("start", "Start Zeus Bot and show main menu"),
                     BotCommand("dashboard", "Open web dashboard"),
+                    BotCommand("analyze", "Analyze any coin - /analyze BTC"),
                     BotCommand("status", "View current bot status and balance"),
                     BotCommand("portfolio", "View your token holdings"),
                     BotCommand("trades", "View active open trades"),
