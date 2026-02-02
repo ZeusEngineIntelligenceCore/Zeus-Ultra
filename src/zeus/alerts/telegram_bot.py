@@ -428,6 +428,8 @@ class TelegramAlerts:
         if not self.config.send_trades:
             return False
         side_emoji = "🟢 LONG" if side == OrderSide.BUY else "🔴 SHORT"
+        projected_profit_pct = ((take_profit - entry_price) / entry_price) * 100 if take_profit > entry_price else 0
+        profit_rating = "🚀🚀🚀" if projected_profit_pct >= 100 else "🚀🚀" if projected_profit_pct >= 50 else "🚀" if projected_profit_pct >= 30 else "📈" if projected_profit_pct >= 15 else ""
         message = f"""
 📈 <b>TRADE OPENED</b>
 
@@ -436,6 +438,7 @@ class TelegramAlerts:
 💵 <b>Entry:</b> ${entry_price:.8f}
 📦 <b>Size:</b> {size:.8f}
 💰 <b>Value:</b> ${entry_price * size:.2f}
+{profit_rating} <b>Projected:</b> +{projected_profit_pct:.1f}%
 
 🛑 <b>Stop Loss:</b> ${stop_loss:.8f}
 🎯 <b>Take Profit:</b> ${take_profit:.8f}
