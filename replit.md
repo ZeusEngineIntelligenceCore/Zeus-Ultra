@@ -134,6 +134,7 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- DASHBOARD COMMAND: Added /dashboard command and inline button to open web dashboard directly from Telegram (February 2026)
 - TELEGRAM COMMAND FIX: Fixed 'trading_mode' attribute error - /status now uses bot.mode correctly (February 2026)
 - Enhanced /status command to show persisted status, last scan time, and proper pairs count (February 2026)
 - Fixed /portfolio and /trades commands to access state correctly via StateManager.state (February 2026)

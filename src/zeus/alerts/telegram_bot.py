@@ -631,22 +631,32 @@ class TelegramAlerts:
         self._bot_ref = bot_instance
         logger.info("Telegram: Bot reference set for interactive commands")
 
+    def get_dashboard_url(self) -> str:
+        import os
+        domain = os.environ.get('REPLIT_DEV_DOMAIN', os.environ.get('REPLIT_DOMAINS', ''))
+        if domain:
+            return f"https://{domain}/dashboard"
+        return "https://replit.com"
+
     def get_main_keyboard(self) -> 'InlineKeyboardMarkup':
         keyboard = [
             [
-                InlineKeyboardButton("📊 Status", callback_data="cmd_status"),
-                InlineKeyboardButton("💼 Portfolio", callback_data="cmd_portfolio")
+                InlineKeyboardButton("🌐 Dashboard", url=self.get_dashboard_url()),
+                InlineKeyboardButton("📊 Status", callback_data="cmd_status")
             ],
             [
-                InlineKeyboardButton("📈 Trades", callback_data="cmd_trades"),
-                InlineKeyboardButton("🎯 Candidates", callback_data="cmd_candidates")
+                InlineKeyboardButton("💼 Portfolio", callback_data="cmd_portfolio"),
+                InlineKeyboardButton("📈 Trades", callback_data="cmd_trades")
             ],
             [
-                InlineKeyboardButton("📉 Performance", callback_data="cmd_performance"),
-                InlineKeyboardButton("⚙️ Settings", callback_data="cmd_settings")
+                InlineKeyboardButton("🎯 Candidates", callback_data="cmd_candidates"),
+                InlineKeyboardButton("📉 Performance", callback_data="cmd_performance")
             ],
             [
-                InlineKeyboardButton("❓ Help", callback_data="cmd_help"),
+                InlineKeyboardButton("⚙️ Settings", callback_data="cmd_settings"),
+                InlineKeyboardButton("❓ Help", callback_data="cmd_help")
+            ],
+            [
                 InlineKeyboardButton("🔄 Refresh", callback_data="cmd_refresh")
             ]
         ]
@@ -818,6 +828,7 @@ class TelegramAlerts:
 
 <b>Available Commands:</b>
 
+/dashboard - Open web dashboard
 /status - View bot status & stats
 /portfolio - View token holdings
 /trades - View active trades
@@ -945,6 +956,28 @@ Use the buttons below or type commands to interact with me.
             logger.error(f"Report command error: {e}")
             await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}")
 
+    async def cmd_dashboard(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        dashboard_url = self.get_dashboard_url()
+        keyboard = [[InlineKeyboardButton("🌐 Open Dashboard", url=dashboard_url)]]
+        msg = f"""
+🌐 <b>ZEUS WEB DASHBOARD</b>
+
+Access the full interactive dashboard to:
+• View real-time portfolio stats
+• Monitor active trades
+• See top candidates
+• Control bot settings
+
+<b>URL:</b> {dashboard_url}
+
+Tap the button below to open:
+"""
+        await update.message.reply_text(
+            msg.strip(),
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
     async def start_command_listener(self) -> None:
         if not TELEGRAM_AVAILABLE or self._commands_registered:
             return
@@ -970,6 +1003,7 @@ Use the buttons below or type commands to interact with me.
                 self.app.add_handler(CommandHandler("settings", self.cmd_settings))
                 self.app.add_handler(CommandHandler("help", self.cmd_help))
                 self.app.add_handler(CommandHandler("report", self.cmd_report))
+                self.app.add_handler(CommandHandler("dashboard", self.cmd_dashboard))
                 self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
                 self._commands_registered = True
                 logger.info("Telegram command handlers registered")
@@ -1008,6 +1042,7 @@ Use the buttons below or type commands to interact with me.
                 from telegram import BotCommand
                 commands = [
                     BotCommand("start", "Start Zeus Bot and show main menu"),
+                    BotCommand("dashboard", "Open web dashboard"),
                     BotCommand("status", "View current bot status and balance"),
                     BotCommand("portfolio", "View your token holdings"),
                     BotCommand("trades", "View active open trades"),
