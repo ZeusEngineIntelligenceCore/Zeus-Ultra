@@ -576,15 +576,31 @@ class ZeusBot:
         size = self.risk_manager.calculate_optimal_size(
             signal.entry_price,
             signal.stop_loss,
-            signal.confidence
+            signal.confidence,
+            signal.take_profit
         )
         if size <= 0:
             logger.warning("Position size too small")
             return None
         if adv_risk.kelly_size > 0:
             size = min(size, adv_risk.kelly_size)
-        max_size = self.state.state.config.per_trade_amount / signal.entry_price
+        projected_profit_pct = ((signal.take_profit - signal.entry_price) / signal.entry_price) * 100 if signal.take_profit > signal.entry_price else 0
+        if projected_profit_pct >= 100:
+            profit_cap_mult = 10.0
+        elif projected_profit_pct >= 50:
+            profit_cap_mult = 5.0
+        elif projected_profit_pct >= 30:
+            profit_cap_mult = 3.0
+        elif projected_profit_pct >= 15:
+            profit_cap_mult = 2.0
+        else:
+            profit_cap_mult = 1.0
+        max_trade_amount = self.state.state.config.per_trade_amount * profit_cap_mult
+        max_trade_amount = min(max_trade_amount, self.state.state.equity * 0.25)
+        max_size = max_trade_amount / signal.entry_price
         size = min(size, max_size)
+        if profit_cap_mult > 1.0:
+            logger.info(f"Profit-scaled sizing: {projected_profit_pct:.1f}% projected → {profit_cap_mult}x cap (max ${max_trade_amount:.2f})")
         
         order_value = size * signal.entry_price
         min_order_value = 5.0

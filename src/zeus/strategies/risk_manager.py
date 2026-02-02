@@ -236,9 +236,13 @@ class RiskManager:
         self,
         entry_price: float,
         stop_loss: float,
-        confidence: float = 100.0
+        confidence: float = 100.0,
+        take_profit: float = 0.0
     ) -> float:
         standard_size = self.calculate_position_size(entry_price, stop_loss, confidence)
+        if take_profit > entry_price:
+            profit_multiplier = self.calculate_profit_multiplier(entry_price, take_profit, confidence)
+            standard_size *= profit_multiplier
         if self.portfolio.stats.total_trades >= 20 and self.portfolio.stats.win_rate >= self.config.min_win_rate:
             kelly_risk = self.calculate_kelly_size(
                 self.portfolio.stats.win_rate,
@@ -250,6 +254,48 @@ class RiskManager:
                 kelly_size = (self.portfolio.equity * kelly_risk) / risk_per_unit
                 return min(standard_size, kelly_size)
         return standard_size
+    
+    def calculate_profit_multiplier(
+        self,
+        entry_price: float,
+        take_profit: float,
+        confidence: float = 100.0
+    ) -> float:
+        """
+        Calculate position size multiplier based on projected profit percentage.
+        Higher projected profit = larger position allocation.
+        
+        Profit tiers:
+        - 100%+ projected: 5x-10x base position (massive opportunity)
+        - 50-100%: 3x-5x base position (major opportunity)
+        - 30-50%: 2x-3x base position (strong opportunity)
+        - 15-30%: 1.5x-2x base position (good opportunity)
+        - 5-15%: 1x-1.5x base position (standard)
+        - Below 5%: 1x base position (minimum)
+        """
+        if entry_price <= 0 or take_profit <= entry_price:
+            return 1.0
+        
+        projected_profit_pct = ((take_profit - entry_price) / entry_price) * 100
+        confidence_factor = min(1.0, max(0.5, confidence / 100.0))
+        
+        if projected_profit_pct >= 100:
+            base_mult = 5.0 + min(5.0, (projected_profit_pct - 100) / 100)
+        elif projected_profit_pct >= 50:
+            base_mult = 3.0 + (projected_profit_pct - 50) / 25
+        elif projected_profit_pct >= 30:
+            base_mult = 2.0 + (projected_profit_pct - 30) / 20
+        elif projected_profit_pct >= 15:
+            base_mult = 1.5 + (projected_profit_pct - 15) / 30
+        elif projected_profit_pct >= 5:
+            base_mult = 1.0 + (projected_profit_pct - 5) / 20
+        else:
+            base_mult = 1.0
+        
+        final_mult = base_mult * confidence_factor
+        final_mult = max(1.0, min(10.0, final_mult))
+        
+        return final_mult
 
     def calculate_trailing_stop(
         self,
