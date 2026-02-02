@@ -12,10 +12,13 @@ Institutional-grade risk management with:
 from __future__ import annotations
 import math
 import random
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import numpy as np
+
+logger = logging.getLogger("Zeus.AdvancedRisk")
 
 
 @dataclass
@@ -99,6 +102,27 @@ class AdvancedRiskEngine:
         self.last_reset_date: Optional[datetime] = None
         self.circuit_breaker_until: Optional[datetime] = None
         self.trade_history: List[Dict[str, Any]] = []
+    
+    def reset_circuit_breaker(self) -> None:
+        """Manually reset the circuit breaker"""
+        self.circuit_breaker_until = None
+        logger.info("Circuit breaker manually reset")
+    
+    def is_circuit_breaker_active(self) -> bool:
+        """Check if circuit breaker is currently active"""
+        if self.circuit_breaker_until is None:
+            return False
+        if datetime.now() >= self.circuit_breaker_until:
+            self.circuit_breaker_until = None
+            return False
+        return True
+    
+    def reset_daily_stats(self) -> None:
+        """Reset daily trading statistics"""
+        self.daily_pnl = 0.0
+        self.daily_start_value = self.peak_portfolio_value
+        self.last_reset_date = datetime.now()
+        logger.info("Daily risk stats reset")
         
     def update_price(self, symbol: str, price: float) -> None:
         if symbol not in self.price_history:
@@ -445,7 +469,7 @@ class AdvancedRiskEngine:
         rejection_reasons = []
         warnings = []
         
-        if self.circuit_breaker_until and datetime.now() < self.circuit_breaker_until:
+        if self.is_circuit_breaker_active():
             return TradeRiskAssessment(
                 approved=False,
                 recommended_size=0,
