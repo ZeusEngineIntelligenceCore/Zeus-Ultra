@@ -1116,14 +1116,14 @@ Tap the button below to open:
         if TelegramAlerts._polling_instance is not None and TelegramAlerts._polling_instance != self:
             logger.warning("Another Telegram polling instance exists, stopping it first")
             await TelegramAlerts._polling_instance.stop_command_listener()
-            await asyncio.sleep(5)
+            await asyncio.sleep(15)
         TelegramAlerts._polling_instance = self
-        max_retries = 3
+        max_retries = 5
         for attempt in range(max_retries):
             try:
                 await self.stop_command_listener()
                 TelegramAlerts._polling_instance = self
-                await asyncio.sleep(3 + attempt * 2)
+                await asyncio.sleep(10 + attempt * 5)
                 if self.bot:
                     try:
                         await self.bot.delete_webhook(drop_pending_updates=True)
