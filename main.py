@@ -119,25 +119,43 @@ def status():
 @app.route("/api/trades")
 @require_login
 def api_trades():
-    if not bot_instance:
-        return jsonify({"trades": [], "error": "Bot not running"}), 200
+    trades = []
     try:
-        state = bot_instance.get_status()
-        trades = []
-        for trade_id, trade in state.get("active_trades", {}).items():
-            trades.append({
-                "id": trade_id,
-                "symbol": trade.get("symbol"),
-                "side": trade.get("side"),
-                "entry_price": trade.get("entry_price"),
-                "size": trade.get("size"),
-                "stop_loss": trade.get("stop_loss"),
-                "take_profit": trade.get("take_profit"),
-                "entry_time": trade.get("entry_time"),
-                "status": trade.get("status"),
-                "is_manual": trade.get("is_manual", False),
-                "protected": trade.get("protected", False)
-            })
+        if bot_instance:
+            state = bot_instance.get_status()
+            for trade_id, trade in state.get("active_trades", {}).items():
+                trades.append({
+                    "id": trade_id,
+                    "symbol": trade.get("symbol"),
+                    "side": trade.get("side"),
+                    "entry_price": trade.get("entry_price"),
+                    "size": trade.get("size"),
+                    "stop_loss": trade.get("stop_loss"),
+                    "take_profit": trade.get("take_profit"),
+                    "entry_time": trade.get("entry_time"),
+                    "status": trade.get("status"),
+                    "is_manual": trade.get("is_manual", False),
+                    "protected": trade.get("protected", False)
+                })
+        if not trades:
+            state_file = Path("data/bot_state.json")
+            if state_file.exists():
+                with open(state_file, 'r') as f:
+                    data = json.load(f)
+                for trade_id, trade in data.get("active_trades", {}).items():
+                    trades.append({
+                        "id": trade_id,
+                        "symbol": trade.get("symbol"),
+                        "side": trade.get("side"),
+                        "entry_price": trade.get("entry_price"),
+                        "size": trade.get("size"),
+                        "stop_loss": trade.get("stop_loss"),
+                        "take_profit": trade.get("take_profit"),
+                        "entry_time": trade.get("entry_time"),
+                        "status": trade.get("status"),
+                        "is_manual": trade.get("is_manual", False),
+                        "protected": trade.get("protected", False)
+                    })
         return jsonify({"trades": trades, "count": len(trades)}), 200
     except Exception as e:
         return jsonify({"trades": [], "error": str(e)}), 200
@@ -146,12 +164,23 @@ def api_trades():
 @app.route("/api/holdings")
 @require_login
 def api_holdings():
-    if not bot_instance:
-        return jsonify({"holdings": [], "error": "Bot not running"}), 200
+    holdings_data = {}
+    active_trades = {}
     try:
-        state = bot_instance.get_status()
-        holdings_data = state.get("holdings", {})
-        price_cache = getattr(bot_instance.exchange, '_ticker_cache', {})
+        if bot_instance:
+            state = bot_instance.get_status()
+            holdings_data = state.get("holdings", {})
+            active_trades = state.get("active_trades", {})
+        if not holdings_data:
+            state_file = Path("data/bot_state.json")
+            if state_file.exists():
+                with open(state_file, 'r') as f:
+                    data = json.load(f)
+                holdings_data = data.get("holdings", {})
+                active_trades = data.get("active_trades", {})
+        price_cache = {}
+        if bot_instance and hasattr(bot_instance, 'exchange') and bot_instance.exchange:
+            price_cache = getattr(bot_instance.exchange, '_ticker_cache', {})
         holdings = []
         
         skip_symbols = {"USD", "ZUSD", "EUR", "ZEUR", "USDT", "USDC", "DAI"}
@@ -180,8 +209,7 @@ def api_holdings():
                     if price > 0:
                         break
             
-            if price == 0 and hasattr(bot_instance, 'state'):
-                active_trades = state.get("active_trades", {})
+            if price == 0:
                 for trade_id, trade in active_trades.items():
                     trade_symbol = trade.get("symbol", "")
                     if trade_symbol.startswith(symbol) or trade_symbol.startswith(clean_symbol):
