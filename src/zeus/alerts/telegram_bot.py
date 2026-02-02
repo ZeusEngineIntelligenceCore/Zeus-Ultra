@@ -1113,70 +1113,10 @@ Tap the button below to open:
     async def start_command_listener(self) -> None:
         if not TELEGRAM_AVAILABLE or self._commands_registered:
             return
-        if TelegramAlerts._polling_instance is not None and TelegramAlerts._polling_instance != self:
-            logger.warning("Another Telegram polling instance exists, stopping it first")
-            await TelegramAlerts._polling_instance.stop_command_listener()
-            await asyncio.sleep(15)
+        logger.info("Telegram operating in send-only mode (alerts enabled, commands via web dashboard)")
+        self._commands_registered = True
+        self._polling_active = False
         TelegramAlerts._polling_instance = self
-        max_retries = 5
-        for attempt in range(max_retries):
-            try:
-                await self.stop_command_listener()
-                TelegramAlerts._polling_instance = self
-                await asyncio.sleep(10 + attempt * 5)
-                if self.bot:
-                    try:
-                        await self.bot.delete_webhook(drop_pending_updates=True)
-                        logger.info("Deleted any existing webhook before starting polling")
-                        await asyncio.sleep(5)
-                    except Exception as e:
-                        logger.warning(f"Could not delete webhook: {e}")
-                self.app = Application.builder().token(self.token).build()
-                self.app.add_handler(CommandHandler("start", self.cmd_start))
-                self.app.add_handler(CommandHandler("status", self.cmd_status))
-                self.app.add_handler(CommandHandler("portfolio", self.cmd_portfolio))
-                self.app.add_handler(CommandHandler("trades", self.cmd_trades))
-                self.app.add_handler(CommandHandler("candidates", self.cmd_candidates))
-                self.app.add_handler(CommandHandler("performance", self.cmd_performance))
-                self.app.add_handler(CommandHandler("settings", self.cmd_settings))
-                self.app.add_handler(CommandHandler("help", self.cmd_help))
-                self.app.add_handler(CommandHandler("report", self.cmd_report))
-                self.app.add_handler(CommandHandler("dashboard", self.cmd_dashboard))
-                self.app.add_handler(CommandHandler("analyze", self.cmd_analyze))
-                self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
-                self._commands_registered = True
-                logger.info("Telegram command handlers registered")
-                await self.app.initialize()
-                await self.app.start()
-                await self._register_bot_commands()
-                await self.app.updater.start_polling(
-                    drop_pending_updates=True,
-                    allowed_updates=["message", "callback_query"],
-                    poll_interval=2.0
-                )
-                logger.info("Telegram command listener started successfully")
-                return
-            except Exception as e:
-                error_str = str(e)
-                if "Conflict" in error_str:
-                    if attempt < max_retries - 1:
-                        wait_time = 10 + (attempt * 10)
-                        logger.warning(f"Telegram polling conflict - waiting {wait_time}s for old session to timeout (retry {attempt + 2}/{max_retries})")
-                        self.app = None
-                        self._commands_registered = False
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        logger.warning("Telegram polling conflict persists - operating in send-only mode (commands disabled)")
-                        self._commands_registered = True
-                        self._polling_active = False
-                        return
-                elif "Unauthorized" in error_str:
-                    logger.error("Telegram bot token is invalid")
-                    return
-                else:
-                    logger.error(f"Failed to start command listener: {e}")
-                    return
 
     async def _register_bot_commands(self) -> None:
         try:
