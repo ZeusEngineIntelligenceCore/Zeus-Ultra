@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Zeus Coin Analyzer</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg-color: #1a1a2e;
+            --card-bg: rgba(255,255,255,0.05);
+            --text-primary: #ffffff;
+            --text-secondary: #a0aec0;
+            --accent: #4299e1;
+            --success: #48bb78;
+            --warning: #ecc94b;
+            --danger: #f56565;
+            --purple: #9f7aea;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 1rem;
+            padding-bottom: 100px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .header h1 {
+            font-size: 1.5rem;
+            background: linear-gradient(135deg, #4299e1, #9f7aea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.25rem;
+        }
+        .header p {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+        .search-container {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+        .search-input {
+            width: 100%;
+            padding: 1rem 1.25rem;
+            background: var(--card-bg);
+            border: 2px solid rgba(66,153,225,0.3);
+            border-radius: 1rem;
+            color: var(--text-primary);
+            font-size: 1.1rem;
+            text-transform: uppercase;
+            outline: none;
+            transition: all 0.3s;
+        }
+        .search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 20px rgba(66,153,225,0.2);
+        }
+        .search-input::placeholder {
+            color: var(--text-secondary);
+            text-transform: none;
+        }
+        .analyze-btn {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, #4299e1, #9f7aea);
+            border: none;
+            border-radius: 0.75rem;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 1.5rem;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        .analyze-btn:hover { opacity: 0.9; transform: scale(1.02); }
+        .analyze-btn:active { transform: scale(0.98); }
+        .analyze-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .quick-picks {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .quick-pick {
+            padding: 0.5rem 1rem;
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 2rem;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .quick-pick:hover {
+            background: rgba(66,153,225,0.2);
+            border-color: var(--accent);
+        }
+        .results-container {
+            display: none;
+        }
+        .results-container.visible {
+            display: block;
+        }
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--card-bg);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .result-card {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .symbol-name {
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .score-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        .score-high { background: rgba(72,187,120,0.2); color: var(--success); }
+        .score-mid { background: rgba(236,201,75,0.2); color: var(--warning); }
+        .score-low { background: rgba(245,101,101,0.2); color: var(--danger); }
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+        .info-item {
+            background: rgba(0,0,0,0.2);
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+        }
+        .info-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+        .info-value {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .info-value.green { color: var(--success); }
+        .info-value.red { color: var(--danger); }
+        .info-value.yellow { color: var(--warning); }
+        .info-value.blue { color: var(--accent); }
+        .info-value.purple { color: var(--purple); }
+        .kpi-section {
+            margin-top: 1rem;
+        }
+        .kpi-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--purple);
+        }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+        .kpi-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem;
+            background: rgba(0,0,0,0.15);
+            border-radius: 0.375rem;
+            font-size: 0.75rem;
+        }
+        .kpi-name { color: var(--text-secondary); }
+        .kpi-value {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .kpi-bar {
+            width: 40px;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .kpi-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+        .kpi-bar-fill.high { background: var(--success); }
+        .kpi-bar-fill.mid { background: var(--warning); }
+        .kpi-bar-fill.low { background: var(--danger); }
+        .signals-section {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .signal-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0;
+            font-size: 0.875rem;
+        }
+        .signal-emoji { font-size: 1rem; }
+        .trade-levels {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(66,153,225,0.1);
+            border-radius: 0.75rem;
+            border: 1px solid rgba(66,153,225,0.2);
+        }
+        .level-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+        }
+        .level-label { color: var(--text-secondary); font-size: 0.875rem; }
+        .level-value { font-weight: 600; font-family: monospace; }
+        .send-telegram-btn {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, #0088cc, #00a0dc);
+            border: none;
+            border-radius: 0.75rem;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        .send-telegram-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .error-message {
+            background: rgba(245,101,101,0.1);
+            border: 1px solid rgba(245,101,101,0.3);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            color: var(--danger);
+            text-align: center;
+        }
+        .timeframe-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            overflow-x: auto;
+            padding-bottom: 0.5rem;
+        }
+        .tf-tab {
+            padding: 0.5rem 1rem;
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 0.5rem;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        .tf-tab.active {
+            background: rgba(66,153,225,0.2);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Zeus Coin Analyzer</h1>
+        <p>30 KPI Deep Analysis for Any Coin</p>
+    </div>
+
+    <div class="search-container">
+        <input type="text" class="search-input" id="symbolInput" placeholder="Enter symbol (e.g., BTC, ETH, FIS)" maxlength="10">
+    </div>
+
+    <button class="analyze-btn" id="analyzeBtn" onclick="analyzeSymbol()">
+        Analyze Coin
+    </button>
+
+    <div class="quick-picks">
+        <button class="quick-pick" onclick="quickPick('BTC')">BTC</button>
+        <button class="quick-pick" onclick="quickPick('ETH')">ETH</button>
+        <button class="quick-pick" onclick="quickPick('SOL')">SOL</button>
+        <button class="quick-pick" onclick="quickPick('FIS')">FIS</button>
+        <button class="quick-pick" onclick="quickPick('XRP')">XRP</button>
+        <button class="quick-pick" onclick="quickPick('DOGE')">DOGE</button>
+    </div>
+
+    <div class="results-container" id="resultsContainer">
+        <div class="loading" id="loadingState">
+            <div class="loading-spinner"></div>
+            <p>Analyzing <span id="loadingSymbol">...</span></p>
+            <p style="font-size: 0.75rem; margin-top: 0.5rem;">Running 30 KPIs across 5 timeframes...</p>
+        </div>
+
+        <div id="resultsContent" style="display: none;"></div>
+    </div>
+
+    <script>
+        const tg = window.Telegram?.WebApp;
+        if (tg) {
+            tg.ready();
+            tg.expand();
+            document.body.style.setProperty('--bg-color', tg.themeParams?.bg_color || '#1a1a2e');
+        }
+
+        const symbolInput = document.getElementById('symbolInput');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const loadingState = document.getElementById('loadingState');
+        const loadingSymbol = document.getElementById('loadingSymbol');
+        const resultsContent = document.getElementById('resultsContent');
+
+        symbolInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') analyzeSymbol();
+        });
+
+        function quickPick(symbol) {
+            symbolInput.value = symbol;
+            analyzeSymbol();
+        }
+
+        async function analyzeSymbol() {
+            const symbol = symbolInput.value.trim().toUpperCase();
+            if (!symbol) {
+                alert('Please enter a symbol');
+                return;
+            }
+
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = 'Analyzing...';
+            resultsContainer.classList.add('visible');
+            loadingState.style.display = 'block';
+            resultsContent.style.display = 'none';
+            loadingSymbol.textContent = symbol;
+
+            try {
+                const response = await fetch(`/api/analyze/${symbol}`);
+                const data = await response.json();
+
+                loadingState.style.display = 'none';
+                resultsContent.style.display = 'block';
+
+                if (data.error) {
+                    resultsContent.innerHTML = `<div class="error-message">${data.error}</div>`;
+                } else {
+                    renderResults(data);
+                }
+            } catch (error) {
+                loadingState.style.display = 'none';
+                resultsContent.style.display = 'block';
+                resultsContent.innerHTML = `<div class="error-message">Failed to analyze. Please try again.</div>`;
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze Coin';
+            }
+        }
+
+        function renderResults(data) {
+            const analysis = data.primary_analysis || {};
+            const features = analysis.features || {};
+            const score = analysis.prebreakout_score || 0;
+            const stage = analysis.stage || 'UNKNOWN';
+            const confidence = analysis.confidence || 0;
+            const price = analysis.current_price || 0;
+            const reasons = analysis.reasons || [];
+            const tech = analysis.technical_indicators || {};
+
+            const scoreClass = score >= 60 ? 'score-high' : score >= 40 ? 'score-mid' : 'score-low';
+            const stageEmoji = {
+                'BREAKOUT': '🚀',
+                'LATE_PRE-BREAKOUT': '🔥',
+                'PRE-BREAKOUT': '⚡',
+                'EARLY_SETUP': '📊',
+                'ACCUMULATION': '🔄',
+                'DORMANT': '💤'
+            }[stage] || '📈';
+
+            const kpiItems = [
+                ['RSI', features.rsi], ['Momentum', features.momentum_cf], ['Vol Spike', features.vol_spike],
+                ['Pressure', features.pressure], ['Microtrend', features.microtrend], ['Impulse', features.impulse],
+                ['Squeeze', features.squeeze], ['ADX', features.adx_strength], ['Supertrend', features.supertrend_conf],
+                ['Aroon', features.aroon_signal], ['Vortex', features.vortex_signal], ['Williams %R', features.williams_r],
+                ['Stoch RSI', features.stoch_rsi], ['MFI', features.mfi_signal], ['OBV Trend', features.obv_trend],
+                ['CCI', features.cci_signal], ['Pivot', features.pivot_distance], ['Fib Level', features.fibonacci_level],
+                ['SAR', features.parabolic_sar], ['Elder', features.elder_power], ['Ultimate', features.ultimate_osc],
+                ['Chop', features.choppiness], ['Klinger', features.klinger_signal], ['Donchian', features.donchian_position],
+                ['LinReg', features.linreg_trend], ['Accel', features.accel], ['Consistency', features.consistency],
+                ['Liquidity', features.liquidity], ['Vol Anomaly', features.anomaly_vol], ['Candle Proj', features.candle_proj]
+            ].filter(([_, v]) => v !== undefined);
+
+            const formatPrice = (p) => p < 1 ? p.toFixed(8) : p.toFixed(4);
+
+            let html = `
+                <div class="result-card">
+                    <div class="result-header">
+                        <div class="symbol-name">${data.symbol}</div>
+                        <div class="score-badge ${scoreClass}">${score.toFixed(1)}/100</div>
+                    </div>
+
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <div class="info-label">Stage</div>
+                            <div class="info-value purple">${stageEmoji} ${stage}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Confidence</div>
+                            <div class="info-value ${confidence >= 60 ? 'green' : confidence >= 40 ? 'yellow' : 'red'}">${confidence.toFixed(1)}%</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">Price</div>
+                            <div class="info-value blue">$${formatPrice(price)}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">RSI</div>
+                            <div class="info-value ${tech.rsi > 70 ? 'red' : tech.rsi < 30 ? 'green' : ''}">${(tech.rsi || 0).toFixed(1)}</div>
+                        </div>
+                    </div>
+
+                    <div class="kpi-section">
+                        <div class="kpi-title">30 KPI Analysis</div>
+                        <div class="kpi-grid">
+                            ${kpiItems.map(([name, val]) => {
+                                const pct = (val || 0) * 100;
+                                const barClass = pct >= 60 ? 'high' : pct >= 40 ? 'mid' : 'low';
+                                return `
+                                    <div class="kpi-item">
+                                        <span class="kpi-name">${name}</span>
+                                        <span class="kpi-value">
+                                            <span class="kpi-bar"><span class="kpi-bar-fill ${barClass}" style="width: ${pct}%"></span></span>
+                                            ${pct.toFixed(0)}%
+                                        </span>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    ${reasons.length > 0 ? `
+                        <div class="signals-section">
+                            <div class="kpi-title">Active Signals</div>
+                            ${reasons.map(r => `<div class="signal-item"><span class="signal-emoji">✅</span>${r}</div>`).join('')}
+                        </div>
+                    ` : ''}
+
+                    <div class="trade-levels">
+                        <div class="level-row">
+                            <span class="level-label">🎯 Entry Point</span>
+                            <span class="level-value">$${formatPrice(analysis.buy_anchor || 0)}</span>
+                        </div>
+                        <div class="level-row">
+                            <span class="level-label">🛑 Stop Loss</span>
+                            <span class="level-value" style="color: var(--danger);">$${formatPrice(analysis.stop_loss || 0)}</span>
+                        </div>
+                        <div class="level-row">
+                            <span class="level-label">💰 Take Profit</span>
+                            <span class="level-value" style="color: var(--success);">$${formatPrice(analysis.take_profit || 0)}</span>
+                        </div>
+                    </div>
+
+                    <button class="send-telegram-btn" onclick="sendToTelegram('${data.symbol}')">
+                        <span>📤</span> Send Full Report to Telegram
+                    </button>
+                </div>
+
+                <p style="text-align: center; font-size: 0.75rem; color: var(--text-secondary); margin-top: 1rem;">
+                    Analysis generated at ${data.timestamp}
+                </p>
+            `;
+
+            resultsContent.innerHTML = html;
+        }
+
+        async function sendToTelegram(symbol) {
+            const btn = event.target.closest('button');
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳</span> Sending...';
+
+            try {
+                const response = await fetch(`/api/analyze/${symbol}/telegram`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    btn.innerHTML = '<span>✅</span> Sent to Telegram!';
+                    if (tg) {
+                        tg.showAlert('Analysis sent to your Telegram chat!');
+                    }
+                } else {
+                    btn.innerHTML = '<span>❌</span> Failed - Try Again';
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                btn.innerHTML = '<span>❌</span> Error - Try Again';
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

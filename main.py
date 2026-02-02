@@ -196,6 +196,264 @@ def dashboard():
     return render_template("dashboard.html", user=current_user, bot_status=bot_status, current_time=format_la_time())
 
 
+@app.route("/api/analyze/<symbol>")
+@require_login
+def api_analyze_coin(symbol):
+    if not bot_instance:
+        return jsonify({"error": "Bot not running - please start the bot first"}), 503
+    
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    
+    symbol = symbol.upper().strip()
+    if not symbol.endswith("USD"):
+        symbol = f"{symbol}USD"
+    
+    async def run_analysis():
+        try:
+            exchange = bot_instance.exchange
+            prebreakout = bot_instance.prebreakout
+            math_kernel = prebreakout.math
+            
+            timeframes = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+            all_analysis = {}
+            
+            for tf_name, tf_minutes in timeframes.items():
+                try:
+                    ohlcv = await exchange.get_ohlcv(symbol, tf_minutes, limit=500)
+                    if not ohlcv or len(ohlcv) < 50:
+                        continue
+                    
+                    high = [c.high for c in ohlcv]
+                    low = [c.low for c in ohlcv]
+                    close = [c.close for c in ohlcv]
+                    volume = [c.volume for c in ohlcv]
+                    
+                    analysis = await prebreakout.analyze(symbol, high, low, close, volume)
+                    
+                    rsi = math_kernel.rsi(close)
+                    macd_line, signal_line, macd_hist = math_kernel.macd(close)
+                    bb_upper, bb_mid, bb_lower = math_kernel.bollinger_bands(close)
+                    atr = math_kernel.atr(high, low, close)
+                    stoch_k, stoch_d = math_kernel.stochastic(high, low, close)
+                    ema9 = math_kernel.ema(close, 9)
+                    ema20 = math_kernel.ema(close, 20)
+                    ema50 = math_kernel.ema(close, 50)
+                    sma200 = math_kernel.sma(close, 200)
+                    adx = math_kernel.adx(high, low, close)
+                    
+                    analysis["technical_indicators"] = {
+                        "rsi": round(rsi, 2),
+                        "macd": round(macd_line, 8),
+                        "macd_signal": round(signal_line, 8),
+                        "macd_histogram": round(macd_hist, 8),
+                        "bb_upper": round(bb_upper, 8),
+                        "bb_middle": round(bb_mid, 8),
+                        "bb_lower": round(bb_lower, 8),
+                        "bb_position": round((close[-1] - bb_lower) / (bb_upper - bb_lower) * 100, 2) if (bb_upper - bb_lower) > 0 else 50,
+                        "atr": round(atr, 8),
+                        "atr_pct": round(atr / close[-1] * 100, 2) if close[-1] > 0 else 0,
+                        "stoch_k": round(stoch_k, 2),
+                        "stoch_d": round(stoch_d, 2),
+                        "ema_9": round(ema9, 8),
+                        "ema_20": round(ema20, 8),
+                        "ema_50": round(ema50, 8),
+                        "sma_200": round(sma200, 8),
+                        "adx": round(adx, 2)
+                    }
+                    
+                    price_change_24h = ((close[-1] - close[-min(24, len(close))]) / close[-min(24, len(close))]) * 100 if len(close) > 24 else 0
+                    high_24h = max(high[-min(24, len(high)):])
+                    low_24h = min(low[-min(24, len(low)):])
+                    avg_volume = sum(volume[-20:]) / 20 if len(volume) >= 20 else sum(volume) / len(volume)
+                    current_volume = volume[-1] if volume else 0
+                    
+                    analysis["market_data"] = {
+                        "current_price": round(close[-1], 8),
+                        "price_change_24h": round(price_change_24h, 2),
+                        "high_24h": round(high_24h, 8),
+                        "low_24h": round(low_24h, 8),
+                        "current_volume": round(current_volume, 2),
+                        "avg_volume": round(avg_volume, 2),
+                        "volume_ratio": round(current_volume / avg_volume, 2) if avg_volume > 0 else 0
+                    }
+                    
+                    all_analysis[tf_name] = analysis
+                except Exception as e:
+                    all_analysis[tf_name] = {"error": str(e)}
+            
+            if not all_analysis:
+                return {"error": f"Could not fetch data for {symbol}. Make sure it's a valid Kraken trading pair."}
+            
+            primary_tf = all_analysis.get("15m") or all_analysis.get("1h") or list(all_analysis.values())[0]
+            
+            return {
+                "symbol": symbol,
+                "timestamp": format_la_time(),
+                "primary_analysis": primary_tf,
+                "timeframes": all_analysis,
+                "kpi_count": primary_tf.get("kpi_count", 30),
+                "success": True
+            }
+        except Exception as e:
+            return {"error": str(e)}
+    
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(run_analysis())
+        loop.close()
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/analyze/<symbol>/telegram", methods=["POST"])
+@require_login
+def api_analyze_to_telegram(symbol):
+    if not bot_instance:
+        return jsonify({"error": "Bot not running"}), 503
+    
+    import asyncio
+    
+    symbol = symbol.upper().strip()
+    if not symbol.endswith("USD"):
+        symbol = f"{symbol}USD"
+    
+    async def send_analysis():
+        try:
+            telegram = bot_instance.telegram
+            exchange = bot_instance.exchange
+            prebreakout = bot_instance.prebreakout
+            
+            ohlcv = await exchange.get_ohlcv(symbol, 15, limit=500)
+            if not ohlcv or len(ohlcv) < 50:
+                return {"error": f"Insufficient data for {symbol}"}
+            
+            high = [c.high for c in ohlcv]
+            low = [c.low for c in ohlcv]
+            close = [c.close for c in ohlcv]
+            volume = [c.volume for c in ohlcv]
+            
+            analysis = await prebreakout.analyze(symbol, high, low, close, volume)
+            
+            score = analysis.get("prebreakout_score", 0)
+            stage = analysis.get("stage", "UNKNOWN")
+            confidence = analysis.get("confidence", 0)
+            price = analysis.get("current_price", 0)
+            features = analysis.get("features", {})
+            reasons = analysis.get("reasons", [])
+            
+            stage_emoji = {
+                "BREAKOUT": "🚀",
+                "LATE_PRE-BREAKOUT": "🔥",
+                "PRE-BREAKOUT": "⚡",
+                "EARLY_SETUP": "📊",
+                "ACCUMULATION": "🔄",
+                "DORMANT": "💤"
+            }.get(stage, "📈")
+            
+            msg_lines = [
+                f"🔬 <b>ZEUS COIN ANALYSIS</b>",
+                f"━━━━━━━━━━━━━━━━━━━━",
+                f"",
+                f"<b>Symbol:</b> {symbol}",
+                f"<b>Price:</b> ${price:.8f}" if price < 1 else f"<b>Price:</b> ${price:.4f}",
+                f"<b>Stage:</b> {stage_emoji} {stage}",
+                f"<b>Score:</b> {score:.1f}/100",
+                f"<b>Confidence:</b> {confidence:.1f}%",
+                f"",
+                f"━━━ <b>30 KPI ANALYSIS</b> ━━━"
+            ]
+            
+            kpi_items = [
+                ("RSI", features.get("rsi", 0)),
+                ("Momentum", features.get("momentum_cf", 0)),
+                ("Volume Spike", features.get("vol_spike", 0)),
+                ("Pressure", features.get("pressure", 0)),
+                ("Microtrend", features.get("microtrend", 0)),
+                ("Impulse", features.get("impulse", 0)),
+                ("Squeeze", features.get("squeeze", 0)),
+                ("ADX Strength", features.get("adx_strength", 0)),
+                ("Supertrend", features.get("supertrend_conf", 0)),
+                ("Aroon", features.get("aroon_signal", 0)),
+                ("Vortex", features.get("vortex_signal", 0)),
+                ("Williams %R", features.get("williams_r", 0)),
+                ("Stoch RSI", features.get("stoch_rsi", 0)),
+                ("MFI", features.get("mfi_signal", 0)),
+                ("OBV Trend", features.get("obv_trend", 0)),
+                ("CCI", features.get("cci_signal", 0)),
+                ("Pivot Dist", features.get("pivot_distance", 0)),
+                ("Fib Level", features.get("fibonacci_level", 0)),
+                ("Parabolic SAR", features.get("parabolic_sar", 0)),
+                ("Elder Power", features.get("elder_power", 0)),
+                ("Ultimate Osc", features.get("ultimate_osc", 0)),
+                ("Choppiness", features.get("choppiness", 0)),
+                ("Klinger", features.get("klinger_signal", 0)),
+                ("Donchian", features.get("donchian_position", 0)),
+                ("LinReg", features.get("linreg_trend", 0)),
+                ("Acceleration", features.get("accel", 0)),
+                ("Consistency", features.get("consistency", 0)),
+                ("Liquidity", features.get("liquidity", 0)),
+                ("Vol Anomaly", features.get("anomaly_vol", 0)),
+                ("Candle Proj", features.get("candle_proj", 0))
+            ]
+            
+            for name, val in kpi_items:
+                bar = "█" * int(val * 10) + "░" * (10 - int(val * 10))
+                pct = val * 100
+                emoji = "🟢" if pct >= 60 else "🟡" if pct >= 40 else "🔴"
+                msg_lines.append(f"{emoji} {name}: {bar} {pct:.0f}%")
+            
+            if reasons:
+                msg_lines.append("")
+                msg_lines.append("━━━ <b>SIGNALS</b> ━━━")
+                for reason in reasons[:5]:
+                    msg_lines.append(f"✅ {reason}")
+            
+            msg_lines.extend([
+                "",
+                f"━━━ <b>TRADE LEVELS</b> ━━━",
+                f"🎯 Entry: ${analysis.get('buy_anchor', 0):.8f}" if price < 1 else f"🎯 Entry: ${analysis.get('buy_anchor', 0):.4f}",
+                f"🛑 Stop Loss: ${analysis.get('stop_loss', 0):.8f}" if price < 1 else f"🛑 Stop Loss: ${analysis.get('stop_loss', 0):.4f}",
+                f"💰 Take Profit: ${analysis.get('take_profit', 0):.8f}" if price < 1 else f"💰 Take Profit: ${analysis.get('take_profit', 0):.4f}",
+                "",
+                f"⏰ {format_la_time()}"
+            ])
+            
+            message = "\n".join(msg_lines)
+            await telegram.send_message(message, alert_type="analysis", urgent=True)
+            
+            return {"success": True, "message": "Analysis sent to Telegram"}
+        except Exception as e:
+            return {"error": str(e)}
+    
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(send_analysis())
+        loop.close()
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/miniapp")
+def miniapp():
+    return render_template("miniapp.html")
+
+
+@app.route("/api/pairs")
+def api_pairs():
+    if not bot_instance:
+        return jsonify({"pairs": []}), 200
+    try:
+        pairs = bot_instance._pairs_cache[:100] if bot_instance._pairs_cache else []
+        return jsonify({"pairs": pairs}), 200
+    except Exception:
+        return jsonify({"pairs": []}), 200
+
+
 def run_trading_bot():
     global bot_instance
     
