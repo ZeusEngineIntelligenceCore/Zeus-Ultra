@@ -975,6 +975,7 @@ Use the buttons below or type commands to interact with me.
                 logger.info("Telegram command handlers registered")
                 await self.app.initialize()
                 await self.app.start()
+                await self._register_bot_commands()
                 await self.app.updater.start_polling(
                     drop_pending_updates=True,
                     allowed_updates=["message", "callback_query"]
@@ -1000,6 +1001,29 @@ Use the buttons below or type commands to interact with me.
                 else:
                     logger.error(f"Failed to start command listener: {e}")
                     return
+
+    async def _register_bot_commands(self) -> None:
+        try:
+            if TELEGRAM_AVAILABLE and self.app and self.app.bot:
+                from telegram import BotCommand
+                commands = [
+                    BotCommand("start", "Start Zeus Bot and show main menu"),
+                    BotCommand("status", "View current bot status and balance"),
+                    BotCommand("portfolio", "View your token holdings"),
+                    BotCommand("trades", "View active open trades"),
+                    BotCommand("candidates", "View top trading candidates"),
+                    BotCommand("performance", "View trading performance stats"),
+                    BotCommand("settings", "View and manage bot settings"),
+                    BotCommand("report", "Generate performance report"),
+                    BotCommand("help", "Show available commands")
+                ]
+                await self.app.bot.set_my_commands(commands)
+                logger.info(f"Registered {len(commands)} bot commands with Telegram")
+                await self.app.bot.set_my_description("Zeus Autonomous Trading Bot - Professional crypto trading with ML-powered signals, real-time alerts, and advanced risk management.")
+                await self.app.bot.set_my_short_description("Zeus Trading Bot - Autonomous crypto trading")
+                logger.info("Updated bot description")
+        except Exception as e:
+            logger.warning(f"Could not register bot commands: {e}")
 
     async def stop_command_listener(self) -> None:
         if self.app:
