@@ -134,6 +134,10 @@ The bot runs automatically via the configured workflow. It will:
 - Never trade more than you can afford to lose
 
 ## Recent Changes
+- TELEGRAM COMMAND FIX: Fixed 'trading_mode' attribute error - /status now uses bot.mode correctly (February 2026)
+- Enhanced /status command to show persisted status, last scan time, and proper pairs count (February 2026)
+- Fixed /portfolio and /trades commands to access state correctly via StateManager.state (February 2026)
+- Added retry logic with exponential backoff for Telegram polling conflicts (February 2026)
 - TELEGRAM STABILITY FIX: Fixed StateManager attribute errors - /trades and /report commands now correctly access active_trades (February 2026)
 - Fixed Telegram polling conflict by properly deleting webhook before starting polling (February 2026)
 - Added get_daily_insights() method to TelegramLearningEngine for performance analytics (February 2026)

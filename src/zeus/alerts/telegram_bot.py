@@ -657,26 +657,33 @@ class TelegramAlerts:
             return "⚠️ Bot reference not available"
         try:
             bot = self._bot_ref
-            state = bot.state
-            mode = "🔴 LIVE" if bot.trading_mode == "LIVE" else "🟡 PAPER"
-            running = "🟢 Running" if state.is_running else "🔴 Stopped"
+            state_mgr = bot.state
+            bot_state = state_mgr.state if hasattr(state_mgr, 'state') else state_mgr
+            mode = "🔴 LIVE" if bot.mode == "LIVE" else "🟡 PAPER"
+            status_str = bot_state.status if hasattr(bot_state, 'status') else "UNKNOWN"
+            if status_str in ["SCANNING", "RUNNING"] or bot.running:
+                running = "🟢 Running"
+            else:
+                running = "🔴 Stopped"
             balance = bot.exchange.cached_balance if hasattr(bot.exchange, 'cached_balance') else None
             balance_str = f"${balance:.2f}" if isinstance(balance, (int, float)) else "N/A"
-            positions = len(state.open_positions)
-            holdings = len(state.holdings) if hasattr(state, 'holdings') else 0
-            uptime = datetime.now(timezone.utc) - state.start_time if hasattr(state, 'start_time') and state.start_time else None
-            uptime_str = str(uptime).split('.')[0] if uptime else "N/A"
+            positions = state_mgr.get_open_positions_count() if hasattr(state_mgr, 'get_open_positions_count') else len(bot_state.active_trades) if hasattr(bot_state, 'active_trades') else 0
+            holdings = len(bot_state.holdings) if hasattr(bot_state, 'holdings') else 0
+            pairs_count = len(bot._pairs_cache) if hasattr(bot, '_pairs_cache') and bot._pairs_cache else "Initializing..."
+            trading_cycle = bot_state.trading_cycle if hasattr(bot_state, 'trading_cycle') else 0
+            last_scan = bot_state.last_scan if hasattr(bot_state, 'last_scan') and bot_state.last_scan else None
+            last_scan_str = last_scan[:19] if last_scan else "N/A"
             msg = f"""
 ⚡ <b>ZEUS STATUS</b>
 
 <b>Mode:</b> {mode}
-<b>Status:</b> {running}
+<b>Status:</b> {running} ({status_str})
 <b>Balance:</b> {balance_str}
 <b>Open Positions:</b> {positions}
 <b>Holdings:</b> {holdings} tokens
-<b>Uptime:</b> {uptime_str}
-<b>Pairs Monitored:</b> {len(state.pairs_list) if hasattr(state, 'pairs_list') else 'N/A'}
-<b>Trading Cycle:</b> {state.trading_cycle}
+<b>Pairs Monitored:</b> {pairs_count}
+<b>Trading Cycle:</b> {trading_cycle}
+<b>Last Scan:</b> {last_scan_str}
 
 ⏰ {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC
 """
@@ -690,12 +697,12 @@ class TelegramAlerts:
             return "⚠️ Bot reference not available"
         try:
             bot = self._bot_ref
-            state = bot.state
-            holdings = state.holdings if hasattr(state, 'holdings') else {}
+            state_mgr = bot.state
+            bot_state = state_mgr.state if hasattr(state_mgr, 'state') else state_mgr
+            holdings = bot_state.holdings if hasattr(bot_state, 'holdings') else {}
             if not holdings:
                 return "💼 <b>Portfolio</b>\n\nNo holdings found."
             lines = ["💼 <b>PORTFOLIO HOLDINGS</b>\n"]
-            total_value = 0.0
             sorted_holdings = sorted(holdings.items(), key=lambda x: x[1], reverse=True)[:15]
             for symbol, amount in sorted_holdings:
                 if amount > 0.0001:
@@ -941,45 +948,58 @@ Use the buttons below or type commands to interact with me.
     async def start_command_listener(self) -> None:
         if not TELEGRAM_AVAILABLE or self._commands_registered:
             return
-        try:
-            await self.stop_command_listener()
-            await asyncio.sleep(1)
-            if self.bot:
-                try:
-                    await self.bot.delete_webhook(drop_pending_updates=True)
-                    logger.info("Deleted any existing webhook before starting polling")
-                    await asyncio.sleep(1)
-                except Exception as e:
-                    logger.warning(f"Could not delete webhook: {e}")
-            self.app = Application.builder().token(self.token).build()
-            self.app.add_handler(CommandHandler("start", self.cmd_start))
-            self.app.add_handler(CommandHandler("status", self.cmd_status))
-            self.app.add_handler(CommandHandler("portfolio", self.cmd_portfolio))
-            self.app.add_handler(CommandHandler("trades", self.cmd_trades))
-            self.app.add_handler(CommandHandler("candidates", self.cmd_candidates))
-            self.app.add_handler(CommandHandler("performance", self.cmd_performance))
-            self.app.add_handler(CommandHandler("settings", self.cmd_settings))
-            self.app.add_handler(CommandHandler("help", self.cmd_help))
-            self.app.add_handler(CommandHandler("report", self.cmd_report))
-            self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
-            self._commands_registered = True
-            logger.info("Telegram command handlers registered")
-            await self.app.initialize()
-            await self.app.start()
-            await self.app.updater.start_polling(
-                drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"]
-            )
-            logger.info("Telegram command listener started successfully")
-        except Exception as e:
-            error_str = str(e)
-            if "Conflict" in error_str:
-                logger.warning("Telegram polling conflict - another instance may be running. Bot will operate in send-only mode.")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await self.stop_command_listener()
+                await asyncio.sleep(2)
+                if self.bot:
+                    try:
+                        await self.bot.delete_webhook(drop_pending_updates=True)
+                        logger.info("Deleted any existing webhook before starting polling")
+                        await asyncio.sleep(3)
+                    except Exception as e:
+                        logger.warning(f"Could not delete webhook: {e}")
+                self.app = Application.builder().token(self.token).build()
+                self.app.add_handler(CommandHandler("start", self.cmd_start))
+                self.app.add_handler(CommandHandler("status", self.cmd_status))
+                self.app.add_handler(CommandHandler("portfolio", self.cmd_portfolio))
+                self.app.add_handler(CommandHandler("trades", self.cmd_trades))
+                self.app.add_handler(CommandHandler("candidates", self.cmd_candidates))
+                self.app.add_handler(CommandHandler("performance", self.cmd_performance))
+                self.app.add_handler(CommandHandler("settings", self.cmd_settings))
+                self.app.add_handler(CommandHandler("help", self.cmd_help))
+                self.app.add_handler(CommandHandler("report", self.cmd_report))
+                self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
                 self._commands_registered = True
-            elif "Unauthorized" in error_str:
-                logger.error("Telegram bot token is invalid")
-            else:
-                logger.error(f"Failed to start command listener: {e}")
+                logger.info("Telegram command handlers registered")
+                await self.app.initialize()
+                await self.app.start()
+                await self.app.updater.start_polling(
+                    drop_pending_updates=True,
+                    allowed_updates=["message", "callback_query"]
+                )
+                logger.info("Telegram command listener started successfully")
+                return
+            except Exception as e:
+                error_str = str(e)
+                if "Conflict" in error_str:
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 5
+                        logger.warning(f"Telegram polling conflict - waiting {wait_time}s before retry {attempt + 2}/{max_retries}")
+                        await asyncio.sleep(wait_time)
+                        self._commands_registered = False
+                        continue
+                    else:
+                        logger.warning("Telegram polling conflict persists - operating in send-only mode")
+                        self._commands_registered = True
+                        return
+                elif "Unauthorized" in error_str:
+                    logger.error("Telegram bot token is invalid")
+                    return
+                else:
+                    logger.error(f"Failed to start command listener: {e}")
+                    return
 
     async def stop_command_listener(self) -> None:
         if self.app:
