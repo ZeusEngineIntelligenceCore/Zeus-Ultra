@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 ZEUS AUTONOMOUS TRADING BOT - Raspberry Pi 5 Version
-Main entry point - Production WSGI server with background trading bot
-No Replit-specific dependencies
+Main entry point - Standalone version without Replit dependencies
+Run from project root: python main_rpi5.py
 """
 
 import asyncio
@@ -12,18 +12,24 @@ import threading
 import json
 from pathlib import Path
 from datetime import datetime
-import pytz
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root to path
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PROJECT_ROOT)
+
+try:
+    import pytz
+    LA_TZ = pytz.timezone('America/Los_Angeles')
+except ImportError:
+    LA_TZ = None
+    print("[WARNING] pytz not installed, using UTC")
 
 from flask import Flask, render_template, jsonify, request
-from src.zeus.core.bot import ZeusBot
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
 
-LA_TZ = pytz.timezone('America/Los_Angeles')
-
+# Import bot after Flask setup
 bot_instance = None
 bot_thread = None
 bot_lock = threading.Lock()
@@ -43,7 +49,9 @@ bot_status = {
 
 
 def get_la_time():
-    return datetime.now(LA_TZ)
+    if LA_TZ:
+        return datetime.now(LA_TZ)
+    return datetime.utcnow()
 
 
 def format_la_time(dt=None):
@@ -54,7 +62,20 @@ def format_la_time(dt=None):
 
 @app.route("/")
 def index():
-    return render_template("index.html", user=None, bot_status=bot_status, current_time=format_la_time())
+    try:
+        return render_template("index.html", user=None, bot_status=bot_status, current_time=format_la_time())
+    except Exception as e:
+        return f"""
+        <html><head><title>Zeus Trading Bot</title></head>
+        <body style="font-family: sans-serif; padding: 20px;">
+        <h1>Zeus Trading Bot</h1>
+        <p>Status: {'Running' if bot_status['running'] else 'Stopped'}</p>
+        <p>Mode: {bot_status['mode']}</p>
+        <p>Balance: ${bot_status['balance']:.2f}</p>
+        <p>Active Trades: {bot_status['active_trades']}</p>
+        <p><a href="/status">JSON Status</a> | <a href="/dashboard">Dashboard</a></p>
+        </body></html>
+        """
 
 
 @app.route("/health")
@@ -91,7 +112,7 @@ def status():
                             "classification": fg.classification
                         }
                 state_loaded = True
-            except Exception as e:
+            except Exception:
                 pass
         
         if not state_loaded:
@@ -236,14 +257,11 @@ recent_logs = []
 def api_logs():
     global recent_logs
     try:
-        import subprocess
-        result = subprocess.run(
-            ["tail", "-50", "logs/zeus.log"],
-            capture_output=True, text=True, timeout=5
-        )
-        if result.stdout:
-            lines = result.stdout.strip().split('\n')
-            recent_logs = [l[:150] for l in lines[-30:]]
+        log_file = Path("logs/zeus.log")
+        if log_file.exists():
+            with open(log_file, 'r') as f:
+                lines = f.readlines()[-50:]
+                recent_logs = [l.strip()[:150] for l in lines[-30:]]
     except Exception:
         pass
     return jsonify({"logs": recent_logs}), 200
@@ -279,16 +297,47 @@ def toggle_bot():
 
 @app.route("/dashboard")
 def dashboard():
-    return render_template("dashboard.html", user=None, bot_status=bot_status, current_time=format_la_time())
+    try:
+        return render_template("dashboard.html", user=None, bot_status=bot_status, current_time=format_la_time())
+    except Exception:
+        return f"""
+        <html><head><title>Zeus Dashboard</title>
+        <style>
+            body {{ font-family: sans-serif; padding: 20px; background: #1a1a2e; color: #eee; }}
+            .card {{ background: #16213e; padding: 15px; margin: 10px 0; border-radius: 8px; }}
+            h1 {{ color: #e94560; }}
+            .stat {{ display: inline-block; margin: 10px 20px; }}
+            .stat-value {{ font-size: 24px; font-weight: bold; color: #0f3460; }}
+            .green {{ color: #4ecca3; }}
+            .red {{ color: #e94560; }}
+        </style>
+        </head>
+        <body>
+        <h1>Zeus Trading Bot Dashboard</h1>
+        <div class="card">
+            <div class="stat"><span class="stat-value {'green' if bot_status['running'] else 'red'}">{'Running' if bot_status['running'] else 'Stopped'}</span><br>Status</div>
+            <div class="stat"><span class="stat-value">{bot_status['mode']}</span><br>Mode</div>
+            <div class="stat"><span class="stat-value">${bot_status['balance']:.2f}</span><br>Balance</div>
+            <div class="stat"><span class="stat-value">{bot_status['active_trades']}</span><br>Active Trades</div>
+            <div class="stat"><span class="stat-value">{bot_status['holdings_count']}</span><br>Holdings</div>
+        </div>
+        <div class="card">
+            <h3>API Endpoints</h3>
+            <p><a href="/status" style="color:#4ecca3">/status</a> - Bot status JSON</p>
+            <p><a href="/api/trades" style="color:#4ecca3">/api/trades</a> - Active trades</p>
+            <p><a href="/api/holdings" style="color:#4ecca3">/api/holdings</a> - Current holdings</p>
+            <p><a href="/api/candidates" style="color:#4ecca3">/api/candidates</a> - Trading candidates</p>
+            <p><a href="/api/logs" style="color:#4ecca3">/api/logs</a> - Recent logs</p>
+        </div>
+        <p style="color:#888">Last updated: {format_la_time()}</p>
+        </body></html>
+        """
 
 
 @app.route("/api/analyze/<symbol>")
 def api_analyze_coin(symbol):
     if not bot_instance:
         return jsonify({"error": "Bot not running - please start the bot first"}), 503
-    
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
     
     symbol = symbol.upper().strip()
     if not symbol.endswith("USD"):
@@ -300,12 +349,7 @@ def api_analyze_coin(symbol):
             return base_symbol
         
         base = base_symbol.replace("USD", "")
-        possible_names = [
-            base_symbol,
-            f"X{base}ZUSD",
-            f"X{base}USD",
-            f"{base}ZUSD",
-        ]
+        possible_names = [base_symbol, f"X{base}ZUSD", f"X{base}USD", f"{base}ZUSD"]
         
         for name in possible_names:
             if name in markets:
@@ -399,13 +443,12 @@ def api_analyze_coin(symbol):
                     all_analysis[tf_name] = {"error": str(e)}
             
             if not all_analysis:
-                return {"error": f"Could not fetch data for {symbol}. Make sure it's a valid Kraken trading pair."}
+                return {"error": f"Could not fetch data for {symbol}"}
             
             valid_analyses = {k: v for k, v in all_analysis.items() if "error" not in v and v.get("current_price", 0) > 0}
             
             if not valid_analyses:
-                error_msgs = [f"{k}: {v.get('error', 'No data')}" for k, v in all_analysis.items() if "error" in v]
-                return {"error": f"Failed to fetch data for {symbol}. Kraken API may be temporarily unavailable. " + (error_msgs[0] if error_msgs else "")}
+                return {"error": f"Failed to fetch data for {symbol}"}
             
             primary_tf = valid_analyses.get("15m") or valid_analyses.get("1h") or list(valid_analyses.values())[0]
             
@@ -414,7 +457,6 @@ def api_analyze_coin(symbol):
                 "timestamp": format_la_time(),
                 "primary_analysis": primary_tf,
                 "timeframes": valid_analyses,
-                "kpi_count": primary_tf.get("kpi_count", 30),
                 "success": True
             }
         except Exception as e:
@@ -428,140 +470,6 @@ def api_analyze_coin(symbol):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/analyze/<symbol>/telegram", methods=["POST"])
-def api_analyze_to_telegram(symbol):
-    if not bot_instance:
-        return jsonify({"error": "Bot not running"}), 503
-    
-    import asyncio
-    
-    symbol = symbol.upper().strip()
-    if not symbol.endswith("USD"):
-        symbol = f"{symbol}USD"
-    
-    async def send_analysis():
-        try:
-            telegram = bot_instance.telegram
-            exchange = bot_instance.exchange
-            prebreakout = bot_instance.prebreakout
-            
-            ohlcv = await exchange.fetch_ohlcv(symbol, "15m", limit=500)
-            if not ohlcv or len(ohlcv) < 50:
-                return {"error": f"Insufficient data for {symbol}"}
-            
-            high = [c.high for c in ohlcv]
-            low = [c.low for c in ohlcv]
-            close = [c.close for c in ohlcv]
-            volume = [c.volume for c in ohlcv]
-            
-            analysis = await prebreakout.analyze(symbol, high, low, close, volume)
-            
-            score = analysis.get("prebreakout_score", 0)
-            stage = analysis.get("stage", "UNKNOWN")
-            confidence = analysis.get("confidence", 0)
-            price = analysis.get("current_price", 0)
-            features = analysis.get("features", {})
-            reasons = analysis.get("reasons", [])
-            
-            stage_emoji = {
-                "BREAKOUT": "🚀",
-                "LATE_PRE-BREAKOUT": "🔥",
-                "PRE-BREAKOUT": "⚡",
-                "EARLY_SETUP": "📊",
-                "ACCUMULATION": "🔄",
-                "DORMANT": "💤"
-            }.get(stage, "📈")
-            
-            msg_lines = [
-                f"🔬 <b>ZEUS COIN ANALYSIS</b>",
-                f"━━━━━━━━━━━━━━━━━━━━",
-                f"",
-                f"<b>Symbol:</b> {symbol}",
-                f"<b>Price:</b> ${price:.8f}" if price < 1 else f"<b>Price:</b> ${price:.4f}",
-                f"<b>Stage:</b> {stage_emoji} {stage}",
-                f"<b>Score:</b> {score:.1f}/100",
-                f"<b>Confidence:</b> {confidence:.1f}%",
-                f"",
-                f"━━━ <b>30 KPI ANALYSIS</b> ━━━"
-            ]
-            
-            kpi_items = [
-                ("RSI", features.get("rsi", 0)),
-                ("Momentum", features.get("momentum_cf", 0)),
-                ("Volume Spike", features.get("vol_spike", 0)),
-                ("Pressure", features.get("pressure", 0)),
-                ("Microtrend", features.get("microtrend", 0)),
-                ("Impulse", features.get("impulse", 0)),
-                ("Squeeze", features.get("squeeze", 0)),
-                ("ADX Strength", features.get("adx_strength", 0)),
-                ("Supertrend", features.get("supertrend_conf", 0)),
-                ("Aroon", features.get("aroon_signal", 0)),
-                ("Vortex", features.get("vortex_signal", 0)),
-                ("Williams %R", features.get("williams_r", 0)),
-                ("Stoch RSI", features.get("stoch_rsi", 0)),
-                ("MFI", features.get("mfi_signal", 0)),
-                ("OBV Trend", features.get("obv_trend", 0)),
-                ("CCI", features.get("cci_signal", 0)),
-                ("Pivot Dist", features.get("pivot_distance", 0)),
-                ("Fib Level", features.get("fibonacci_level", 0)),
-                ("Parabolic SAR", features.get("parabolic_sar", 0)),
-                ("Elder Power", features.get("elder_power", 0)),
-                ("Ultimate Osc", features.get("ultimate_osc", 0)),
-                ("Choppiness", features.get("choppiness", 0)),
-                ("Klinger", features.get("klinger_signal", 0)),
-                ("Donchian", features.get("donchian_position", 0)),
-                ("LinReg", features.get("linreg_trend", 0)),
-                ("Acceleration", features.get("accel", 0)),
-                ("Consistency", features.get("consistency", 0)),
-                ("Liquidity", features.get("liquidity", 0)),
-                ("Vol Anomaly", features.get("anomaly_vol", 0)),
-                ("Candle Proj", features.get("candle_proj", 0))
-            ]
-            
-            for name, val in kpi_items:
-                bar = "█" * int(val * 10) + "░" * (10 - int(val * 10))
-                pct = val * 100
-                emoji = "🟢" if pct >= 60 else "🟡" if pct >= 40 else "🔴"
-                msg_lines.append(f"{emoji} {name}: {bar} {pct:.0f}%")
-            
-            if reasons:
-                msg_lines.append("")
-                msg_lines.append("━━━ <b>SIGNALS</b> ━━━")
-                for reason in reasons[:5]:
-                    msg_lines.append(f"✅ {reason}")
-            
-            msg_lines.extend([
-                "",
-                f"━━━ <b>TRADE LEVELS</b> ━━━",
-                f"🎯 Entry: ${analysis.get('buy_anchor', 0):.8f}" if price < 1 else f"🎯 Entry: ${analysis.get('buy_anchor', 0):.4f}",
-                f"🛑 Stop Loss: ${analysis.get('stop_loss', 0):.8f}" if price < 1 else f"🛑 Stop Loss: ${analysis.get('stop_loss', 0):.4f}",
-                f"💰 Take Profit: ${analysis.get('take_profit', 0):.8f}" if price < 1 else f"💰 Take Profit: ${analysis.get('take_profit', 0):.4f}",
-                "",
-                f"⏰ {format_la_time()}"
-            ])
-            
-            message = "\n".join(msg_lines)
-            await telegram.send_message(message, alert_type="analysis", urgent=True)
-            
-            return {"success": True, "message": "Analysis sent to Telegram"}
-        except Exception as e:
-            return {"error": str(e)}
-    
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(send_analysis())
-        loop.close()
-        return jsonify(result), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/miniapp")
-def miniapp():
-    return render_template("miniapp.html")
 
 
 @app.route("/api/pairs")
@@ -580,6 +488,9 @@ def run_trading_bot():
     
     async def start_bot():
         global bot_instance
+        
+        from src.zeus.core.bot import ZeusBot
+        
         print("=" * 60)
         print("  ZEUS AUTONOMOUS TRADING BOT")
         print("  Raspberry Pi 5 Edition")
@@ -618,13 +529,17 @@ def run_trading_bot():
                 bot_status["error"] = str(e)
                 bot_status["running"] = False
             print(f"Bot error: {e}")
+            import traceback
+            traceback.print_exc()
 
     asyncio.run(start_bot())
 
 
 def run_server():
     port = int(os.environ.get("PORT", 5000))
-    print(f"[SERVER] Starting production server on port {port}")
+    host = "0.0.0.0"
+    
+    print(f"[SERVER] Starting server on {host}:{port}")
     
     try:
         from gunicorn.app.base import BaseApplication
@@ -644,7 +559,7 @@ def run_server():
                 return self.application
 
         options = {
-            'bind': f'0.0.0.0:{port}',
+            'bind': f'{host}:{port}',
             'workers': 1,
             'threads': 4,
             'timeout': 120,
@@ -653,15 +568,26 @@ def run_server():
             'loglevel': 'info'
         }
         
+        print("[SERVER] Using Gunicorn production server")
         GunicornApp(app, options).run()
     except ImportError:
         print("[SERVER] Gunicorn not available, using Flask development server")
-        app.run(host='0.0.0.0', port=port, threaded=True)
+        print("[SERVER] Install gunicorn for production use: pip install gunicorn")
+        app.run(host=host, port=port, threaded=True, debug=False)
 
 
 if __name__ == "__main__":
+    # Create required directories
+    Path("data").mkdir(exist_ok=True)
+    Path("logs").mkdir(exist_ok=True)
+    
+    print("[ZEUS] Starting Zeus Trading Bot...")
+    print(f"[ZEUS] Project root: {PROJECT_ROOT}")
+    
+    # Start trading bot in background thread
     bot_thread = threading.Thread(target=run_trading_bot, daemon=True)
     bot_thread.start()
     print("[BOT] Trading bot started in background thread")
     
+    # Start web server
     run_server()

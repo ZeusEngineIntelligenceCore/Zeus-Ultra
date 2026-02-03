@@ -1,6 +1,7 @@
 #!/bin/bash
 # ============================================
 # ZEUS TRADING BOT - Raspberry Pi 5 Setup
+# Run from project root directory
 # ============================================
 
 set -e
@@ -9,6 +10,13 @@ echo "============================================"
 echo "  ZEUS TRADING BOT - RPi5 Setup"
 echo "============================================"
 echo ""
+
+# Check we're in the right directory
+if [ ! -f "main_rpi5.py" ]; then
+    echo "[ERROR] main_rpi5.py not found!"
+    echo "Please run this script from the Zeus project root directory."
+    exit 1
+fi
 
 # Check Python version
 PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2 | cut -d'.' -f1,2)
@@ -34,9 +42,13 @@ source zeus_env/bin/activate
 echo "[SETUP] Upgrading pip..."
 pip install --upgrade pip
 
-# Install dependencies
+# Install dependencies from requirements file
 echo "[SETUP] Installing Python dependencies..."
-pip install flask flask-login gunicorn pytz aiohttp numpy python-telegram-bot
+if [ -f "requirements_rpi5.txt" ]; then
+    pip install -r requirements_rpi5.txt
+else
+    pip install flask flask-login gunicorn pytz aiohttp numpy python-telegram-bot werkzeug
+fi
 
 # Create .env file if it doesn't exist
 if [ ! -f ".env" ]; then
@@ -51,7 +63,7 @@ export TELEGRAM_BOT_TOKEN="your_telegram_bot_token_here"
 export TELEGRAM_CHAT_ID="your_telegram_chat_id_here"
 export TRADING_MODE="PAPER"
 export PORT=5000
-export SECRET_KEY="generate_a_random_secret_key_here"
+export SECRET_KEY="$(openssl rand -hex 32)"
 EOF
     echo ""
     echo "[IMPORTANT] Edit .env file with your actual credentials!"
@@ -60,7 +72,22 @@ else
     echo "[SETUP] .env file already exists"
 fi
 
+# Create run script
+echo "[SETUP] Creating run script..."
+cat > run_zeus.sh << 'EOF'
+#!/bin/bash
+cd "$(dirname "$0")"
+source zeus_env/bin/activate
+source .env
+echo "Starting Zeus Trading Bot..."
+echo "Mode: $TRADING_MODE"
+echo "Dashboard: http://$(hostname -I | awk '{print $1}'):${PORT:-5000}"
+python main_rpi5.py
+EOF
+chmod +x run_zeus.sh
+
 # Create systemd service file
+ZEUS_DIR=$(pwd)
 echo "[SETUP] Creating systemd service file..."
 cat > zeus.service << EOF
 [Unit]
@@ -70,9 +97,9 @@ After=network.target
 [Service]
 Type=simple
 User=$USER
-WorkingDirectory=$(pwd)
-EnvironmentFile=$(pwd)/.env
-ExecStart=$(pwd)/zeus_env/bin/python $(pwd)/main_rpi5.py
+WorkingDirectory=$ZEUS_DIR
+EnvironmentFile=$ZEUS_DIR/.env
+ExecStart=$ZEUS_DIR/zeus_env/bin/python $ZEUS_DIR/main_rpi5.py
 Restart=always
 RestartSec=10
 
@@ -91,9 +118,7 @@ echo "1. Edit your credentials:"
 echo "   nano .env"
 echo ""
 echo "2. Test the bot manually:"
-echo "   source zeus_env/bin/activate"
-echo "   source .env"
-echo "   python main_rpi5.py"
+echo "   ./run_zeus.sh"
 echo ""
 echo "3. (Optional) Install as a system service:"
 echo "   sudo cp zeus.service /etc/systemd/system/"
@@ -104,5 +129,6 @@ echo ""
 echo "4. View service logs:"
 echo "   sudo journalctl -u zeus -f"
 echo ""
-echo "Dashboard will be available at: http://YOUR_PI_IP:5000"
+IP_ADDR=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_PI_IP")
+echo "Dashboard will be available at: http://$IP_ADDR:5000"
 echo ""
