@@ -1,0 +1,23 @@
+# Zeus Trading Bot - Raspberry Pi 5 Dependencies
+# Install with: pip install -r requirements_rpi5.txt
+
+# Web Framework
+flask>=2.3.0
+flask-login>=0.6.0
+gunicorn>=21.0.0
+werkzeug>=2.3.0
+
+# Async HTTP
+aiohttp>=3.8.0
+
+# Data Processing
+numpy>=1.24.0
+
+# Telegram
+python-telegram-bot>=20.0
+
+# Timezone
+pytz>=2023.3
+
+# Kraken API (optional - can use built-in)
+# krakenex>=2.1.0
