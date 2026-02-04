@@ -296,6 +296,22 @@ def api_candidates():
         return jsonify({"candidates": [], "error": str(e)}), 200
 
 
+@app.route("/api/ml/insights")
+@require_login
+def api_ml_insights():
+    if not bot_instance:
+        return jsonify({"error": "Bot not running"}), 200
+    try:
+        basic_ml = bot_instance.ml_engine.get_global_insights()
+        advanced_ml = bot_instance.advanced_ml.get_learning_summary()
+        return jsonify({
+            "basic_ml": basic_ml,
+            "advanced_ml": advanced_ml
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 200
+
+
 @app.route("/api/bot/toggle", methods=["POST"])
 @require_login
 def toggle_bot():

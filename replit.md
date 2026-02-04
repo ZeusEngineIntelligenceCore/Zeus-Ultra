@@ -27,7 +27,11 @@ Zeus is built around a modular architecture with a core trading engine supported
 - **Smart Order Execution**: Implements TWAP, VWAP, and Iceberg order algorithms, along with ML-based slippage prediction and adaptive execution strategies.
 - **Market Regime Detection**: Uses Hidden Markov Models (HMM) and GARCH for volatility clustering, enabling automatic strategy adaptation based on trend vs. range and momentum vs. mean-reversion classifications.
 - **Advanced Mathematical Analysis**: Applies Hurst Exponent, Fractal Support/Resistance, Wavelet Denoising, Shannon Entropy, and Information Ratio for signal quality assessment.
-- **AI/ML Learning System**: Features dual learning engines for the trading bot and Telegram. These engines track performance by symbol, strategy, and time of day, adapt confidence thresholds, detect anomalies, and continuously improve decision-making based on trade outcomes and user interactions.
+- **AI/ML Learning System**: Features a triple-layer learning architecture:
+  1. **Basic ML Engine**: Tracks performance by symbol, strategy, and time of day. Adapts confidence thresholds based on historical win rates.
+  2. **Advanced ML Engine** (NEW): Implements reinforcement learning with Q-value optimization, pattern similarity matching using feature vectors (21 normalized features), market regime detection (TRENDING_UP/DOWN, RANGING, HIGH/LOW_VOLATILITY), adaptive position sizing based on historical pattern success, and indicator importance ranking.
+  3. **Telegram Learning Engine**: Adapts notifications based on user interaction patterns.
+  The system continuously improves through optimization cycles that update indicator importance weights and confidence thresholds.
 - **KPI Analytics System**: Tracks 10 critical performance metrics including Sharpe ratio, Sortino ratio, max drawdown, win rate, profit factor, expectancy, Calmar ratio, trade frequency, average hold times, and symbol-level performance. Records daily returns for accurate drawdown calculations.
 - **Trading Configuration**: Supports a maximum of 100 open positions, a minimum profit target of 3-4%, continuous holdings monitoring, full market scans every 300 seconds, and position scans every 60 seconds.
 - **Authentication**: Uses Replit Auth for user authentication, supporting various social logins and email/password, with protected routes.

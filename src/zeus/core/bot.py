@@ -23,6 +23,7 @@ from ..strategies.signal_generator import SignalGenerator, TradingSignal, Strate
 from ..strategies.risk_manager import RiskManager, RiskConfig
 from ..alerts.telegram_bot import TelegramAlerts, AlertConfig
 from ..ml.learning_engine import TradingLearningEngine, TradeOutcome
+from ..ml.advanced_learning import AdvancedLearningEngine, TradeFeatureVector
 from ..risk.advanced_risk import AdvancedRiskEngine
 from ..data.alternative_data import AlternativeDataAggregator
 from ..execution.smart_execution import SmartExecutionEngine
@@ -65,6 +66,7 @@ class ZeusBot:
             alert_config
         )
         self.ml_engine = TradingLearningEngine()
+        self.advanced_ml = AdvancedLearningEngine()
         self.advanced_risk = AdvancedRiskEngine()
         self.alt_data = AlternativeDataAggregator()
         self.smart_exec = SmartExecutionEngine()
@@ -86,6 +88,49 @@ class ZeusBot:
         self._last_alt_data_update = 0
         self._last_equity_snapshot = 0.0
         self._last_equity_date = ""
+        self._cached_btc_closes: List[float] = []
+        self._last_btc_fetch = 0.0
+
+    def _build_feature_vector(self, signal: TradingSignal) -> TradeFeatureVector:
+        """Build feature vector from signal for advanced ML"""
+        now = datetime.now(timezone.utc)
+        fg = self.alt_data.get_fear_greed()
+        fear_greed_value = fg.value if fg else 50
+        
+        regime = self.advanced_ml.state.current_regime
+        market_regime = regime.get("regime_type", "UNKNOWN") if regime else "UNKNOWN"
+        
+        btc_trend = 0.0
+        if hasattr(self, '_cached_btc_closes') and self._cached_btc_closes and len(self._cached_btc_closes) >= 24:
+            btc_24h_ago = self._cached_btc_closes[-24]
+            btc_now = self._cached_btc_closes[-1]
+            btc_pct_change = (btc_now - btc_24h_ago) / btc_24h_ago * 100 if btc_24h_ago > 0 else 0.0
+            btc_trend = max(-1.0, min(1.0, btc_pct_change / 10.0))
+        
+        return TradeFeatureVector(
+            symbol=signal.symbol,
+            timestamp=now.isoformat(),
+            rsi_14=getattr(signal, 'rsi', 50.0) if hasattr(signal, 'rsi') else 50.0,
+            rsi_7=getattr(signal, 'rsi_7', 50.0) if hasattr(signal, 'rsi_7') else 50.0,
+            macd_histogram=getattr(signal, 'macd_histogram', 0.0) if hasattr(signal, 'macd_histogram') else 0.0,
+            bb_percent=getattr(signal, 'bb_percent', 0.5) if hasattr(signal, 'bb_percent') else 0.5,
+            bb_width=getattr(signal, 'bb_width', 0.02) if hasattr(signal, 'bb_width') else 0.02,
+            volume_ratio=getattr(signal, 'volume_ratio', 1.0) if hasattr(signal, 'volume_ratio') else 1.0,
+            atr_percent=getattr(signal, 'atr_percent', 2.0) if hasattr(signal, 'atr_percent') else 2.0,
+            volatility_rank=getattr(signal, 'volatility_rank', 0.5) if hasattr(signal, 'volatility_rank') else 0.5,
+            trend_strength=getattr(signal, 'trend_strength', 0.0) if hasattr(signal, 'trend_strength') else 0.0,
+            trend_direction=getattr(signal, 'trend_direction', 0.0) if hasattr(signal, 'trend_direction') else 0.0,
+            support_distance=getattr(signal, 'support_distance', 0.0) if hasattr(signal, 'support_distance') else 0.0,
+            resistance_distance=getattr(signal, 'resistance_distance', 0.0) if hasattr(signal, 'resistance_distance') else 0.0,
+            prebreakout_score=signal.prebreakout_score,
+            confidence=signal.confidence,
+            hour_of_day=now.hour,
+            day_of_week=now.weekday(),
+            market_regime=market_regime,
+            btc_trend=btc_trend,
+            fear_greed=fear_greed_value,
+            mtf_alignment=getattr(signal, 'mtf_score', 0.5) if hasattr(signal, 'mtf_score') else 0.5
+        )
 
     async def start(self) -> bool:
         logger.info(f"Starting Zeus Bot in {self.mode} mode...")
@@ -471,6 +516,20 @@ class ZeusBot:
         candidates.sort(key=lambda x: x["prebreakout_score"], reverse=True)
         self._priority_candidates = candidates[:self._priority_focus_size]
         self._priority_last_refresh = time.time()
+        try:
+            btc_ohlcv = await self.exchange.fetch_ohlcv("BTCUSD", "1h", 100)
+            if btc_ohlcv and len(btc_ohlcv) >= 50:
+                btc_closes = [c.close for c in btc_ohlcv]
+                btc_highs = [c.high for c in btc_ohlcv]
+                btc_lows = [c.low for c in btc_ohlcv]
+                btc_volumes = [c.volume for c in btc_ohlcv]
+                self._cached_btc_closes = btc_closes
+                regime = self.advanced_ml.detect_market_regime(
+                    btc_closes, btc_highs, btc_lows, btc_volumes
+                )
+                logger.info(f"Market regime detected: {regime.regime_type} (confidence: {regime.confidence:.2f})")
+        except Exception as e:
+            logger.debug(f"Market regime detection error: {e}")
         logger.info(f"Top-{self._priority_focus_size} priority candidates identified:")
         for i, c in enumerate(self._priority_candidates[:10]):
             logger.info(f"  #{i+1}: {c['symbol']} Score: {c['prebreakout_score']:.1f} Stage: {c['stage']} KPIs: {c.get('kpi_count', 23)}")
@@ -605,6 +664,16 @@ class ZeusBot:
             return None
         if adv_risk.kelly_size > 0:
             size = min(size, adv_risk.kelly_size)
+        features = self._build_feature_vector(signal)
+        adv_sizing = self.advanced_ml.get_adaptive_position_size(
+            base_size=size,
+            features=features,
+            account_equity=portfolio_value,
+            max_risk_pct=2.0
+        )
+        size = adv_sizing.get("recommended_size", size)
+        if adv_sizing.get("reasons"):
+            logger.info(f"[ML SIZING] {signal.symbol}: {adv_sizing['reasons']}")
         projected_profit_pct = ((signal.take_profit - signal.entry_price) / signal.entry_price) * 100 if signal.take_profit > signal.entry_price else 0
         if projected_profit_pct >= 100:
             profit_cap_mult = 10.0
@@ -752,6 +821,7 @@ class ZeusBot:
         )
         if sell_order_id:
             trade.sell_order_id = sell_order_id
+        trade.entry_features = features
         await self.state.open_trade(trade)
         await self.telegram.send_trade_opened(
             signal.symbol,
@@ -972,6 +1042,23 @@ class ZeusBot:
                 strategy=closed_trade.strategy,
                 entry_hour=entry_hour
             )
+            features = getattr(trade, 'entry_features', None)
+            if features is None:
+                features = TradeFeatureVector(
+                    symbol=closed_trade.symbol,
+                    timestamp=closed_trade.entry_time,
+                    prebreakout_score=closed_trade.prebreakout_score,
+                    confidence=closed_trade.confidence,
+                    hour_of_day=entry_hour,
+                    day_of_week=entry_time.weekday()
+                )
+            self.advanced_ml.record_trade_with_features(
+                features=features,
+                pnl=closed_trade.pnl,
+                pnl_pct=pnl_pct,
+                duration_seconds=duration,
+                exit_reason=reason
+            )
             trade_metrics = TradeMetrics(
                 symbol=closed_trade.symbol,
                 pnl=closed_trade.pnl,
@@ -1001,6 +1088,17 @@ class ZeusBot:
                             signal.prebreakout_score,
                             signal.strategy_mode.value
                         )
+                        features = self._build_feature_vector(signal)
+                        adv_should_trade, adv_conf, adv_reasons = self.advanced_ml.should_take_trade(
+                            features, min_confidence=self.state.state.config.min_confidence
+                        )
+                        if not adv_should_trade:
+                            should_trade = False
+                            ml_reasons.extend(adv_reasons)
+                        else:
+                            adjusted_conf = (adjusted_conf + adv_conf) / 2
+                            if adv_reasons:
+                                ml_reasons.extend(adv_reasons)
                         tg_should_alert = self.telegram.learning_engine.should_alert_for_symbol(
                             signal.symbol, signal.confidence
                         )
@@ -1038,6 +1136,17 @@ class ZeusBot:
                             signal.prebreakout_score,
                             signal.strategy_mode.value
                         )
+                        features = self._build_feature_vector(signal)
+                        adv_should_trade, adv_conf, adv_reasons = self.advanced_ml.should_take_trade(
+                            features, min_confidence=self.state.state.config.min_confidence
+                        )
+                        if not adv_should_trade:
+                            should_trade = False
+                            ml_reasons.extend(adv_reasons)
+                        else:
+                            adjusted_conf = (adjusted_conf + adv_conf) / 2
+                            if adv_reasons:
+                                ml_reasons.extend(adv_reasons)
                         tg_should_alert = self.telegram.learning_engine.should_alert_for_symbol(
                             signal.symbol, signal.confidence
                         )
@@ -1066,6 +1175,8 @@ class ZeusBot:
                 logger.info(f"ML Learning cycle: {result}")
                 tg_result = self.telegram.learning_engine.run_learning_cycle()
                 logger.info(f"Telegram Learning cycle: {tg_result}")
+                adv_result = self.advanced_ml.run_optimization_cycle()
+                logger.info(f"Advanced ML optimization: {adv_result}")
             await self.telegram.check_scheduled_reports()
         except Exception as e:
             logger.error(f"Cycle error: {e}")
