@@ -21,13 +21,14 @@ Zeus is built around a modular architecture with a core trading engine supported
 - Telegram Mini App and dashboard commands offer interactive coin analysis and direct access to the web dashboard.
 
 ### Technical Implementations
-- **Core Trading Engine**: Utilizes over 40 technical indicators and a 30 KPI pre-breakout scoring system with weighted multi-factor analysis. It focuses on the top 20 priority candidates and performs multi-timeframe analysis (5m, 15m, 1h, 4h, 1d) with 500 candles each.
+- **Core Trading Engine**: Utilizes over 50 technical indicators and a 30 KPI pre-breakout scoring system with weighted multi-factor analysis. It focuses on the top 20 priority candidates and performs multi-timeframe analysis (5m, 15m, 1h, 4h, 1d) with 500 candles each. Includes detailed [TRADE BLOCKED]/[TRADE APPROVED] logging for full visibility into trade decisions.
 - **Advanced Market Microstructure**: Incorporates Order Flow Imbalance (OFI), VPIN Toxicity Detection, Iceberg Order Detection, Market Maker Bias Analysis, and Liquidity Scoring.
 - **Institutional-Grade Risk Management**: Features Dynamic Kelly Criterion, Value at Risk (VaR), Expected Shortfall (ES), Correlation Matrix, Circuit Breakers, and Monte Carlo Simulations.
 - **Smart Order Execution**: Implements TWAP, VWAP, and Iceberg order algorithms, along with ML-based slippage prediction and adaptive execution strategies.
 - **Market Regime Detection**: Uses Hidden Markov Models (HMM) and GARCH for volatility clustering, enabling automatic strategy adaptation based on trend vs. range and momentum vs. mean-reversion classifications.
 - **Advanced Mathematical Analysis**: Applies Hurst Exponent, Fractal Support/Resistance, Wavelet Denoising, Shannon Entropy, and Information Ratio for signal quality assessment.
 - **AI/ML Learning System**: Features dual learning engines for the trading bot and Telegram. These engines track performance by symbol, strategy, and time of day, adapt confidence thresholds, detect anomalies, and continuously improve decision-making based on trade outcomes and user interactions.
+- **KPI Analytics System**: Tracks 10 critical performance metrics including Sharpe ratio, Sortino ratio, max drawdown, win rate, profit factor, expectancy, Calmar ratio, trade frequency, average hold times, and symbol-level performance. Records daily returns for accurate drawdown calculations.
 - **Trading Configuration**: Supports a maximum of 100 open positions, a minimum profit target of 3-4%, continuous holdings monitoring, full market scans every 300 seconds, and position scans every 60 seconds.
 - **Authentication**: Uses Replit Auth for user authentication, supporting various social logins and email/password, with protected routes.
 - **Production Server**: Employs a Gunicorn WSGI production server with 1 worker and 4 threads.
