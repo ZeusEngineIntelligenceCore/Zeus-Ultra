@@ -66,6 +66,11 @@ def health():
     return {"status": "ok", "time": format_la_time()}, 200
 
 
+@app.route("/api")
+def api_root():
+    return {"status": "ok", "version": "2.0", "time": format_la_time()}, 200
+
+
 @app.route("/status")
 def status():
     with bot_lock:
