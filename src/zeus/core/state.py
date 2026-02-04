@@ -59,7 +59,7 @@ class BotConfig:
     mode: str = "PAPER"
     max_open_positions: int = 100
     per_trade_amount: float = 25.0
-    min_confidence: float = 75.0
+    min_confidence: float = 68.0
     scan_interval: int = 300
     position_scan_interval: int = 60
     strategy_mode: str = "day_trade"

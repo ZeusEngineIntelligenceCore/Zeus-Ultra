@@ -87,36 +87,46 @@ class BreakoutConfig:
     def __post_init__(self):
         if self.weights is None:
             self.weights = {
-                "rsi": 0.06,
-                "momentum_cf": 0.08,
-                "vol_spike": 0.06,
-                "pressure": 0.07,
-                "microtrend": 0.06,
-                "accel": 0.04,
-                "anomaly_vol": 0.04,
-                "candle_proj": 0.03,
-                "consistency": 0.03,
-                "impulse": 0.04,
+                "rsi": 0.05,
+                "momentum_cf": 0.07,
+                "vol_spike": 0.05,
+                "pressure": 0.06,
+                "microtrend": 0.05,
+                "accel": 0.03,
+                "anomaly_vol": 0.03,
+                "candle_proj": 0.02,
+                "consistency": 0.02,
+                "impulse": 0.03,
                 "liquidity": 0.02,
                 "squeeze": 0.02,
-                "adx_strength": 0.05,
-                "aroon_signal": 0.04,
-                "supertrend_conf": 0.05,
-                "vortex_signal": 0.04,
-                "linreg_trend": 0.05,
-                "elder_power": 0.04,
-                "ultimate_osc": 0.04,
-                "choppiness": 0.03,
-                "klinger_signal": 0.04,
-                "donchian_position": 0.04,
-                "cci_signal": 0.03,
-                "williams_r": 0.04,
-                "stoch_rsi": 0.04,
-                "mfi_signal": 0.03,
-                "obv_trend": 0.04,
-                "pivot_distance": 0.03,
-                "fibonacci_level": 0.03,
-                "parabolic_sar": 0.04
+                "adx_strength": 0.04,
+                "aroon_signal": 0.03,
+                "supertrend_conf": 0.04,
+                "vortex_signal": 0.03,
+                "linreg_trend": 0.04,
+                "elder_power": 0.03,
+                "ultimate_osc": 0.03,
+                "choppiness": 0.02,
+                "klinger_signal": 0.03,
+                "donchian_position": 0.03,
+                "cci_signal": 0.02,
+                "williams_r": 0.03,
+                "stoch_rsi": 0.03,
+                "mfi_signal": 0.02,
+                "obv_trend": 0.03,
+                "pivot_distance": 0.02,
+                "fibonacci_level": 0.02,
+                "parabolic_sar": 0.03,
+                "bid_ask_imbalance": 0.04,
+                "order_flow_momentum": 0.04,
+                "volatility_regime": 0.03,
+                "price_acceleration": 0.03,
+                "volume_weighted_momentum": 0.04,
+                "market_depth_score": 0.03,
+                "trend_strength_index": 0.04,
+                "reversal_probability": 0.03,
+                "breakout_velocity": 0.04,
+                "liquidity_adjusted_momentum": 0.03
             }
 
 
@@ -542,6 +552,144 @@ class PreBreakoutDetector:
             return clip01(0.3 - (sar - close[-1]) / close[-1] * 5)
         return clip01(0.5)
 
+    async def bid_ask_imbalance_signal(self, high: List[float], low: List[float], close: List[float], volume: List[float]) -> float:
+        if len(close) < 10:
+            return 0.5
+        buying_pressure = sum((close[i] - low[i]) * volume[i] for i in range(-10, 0))
+        selling_pressure = sum((high[i] - close[i]) * volume[i] for i in range(-10, 0))
+        total_pressure = buying_pressure + selling_pressure
+        if total_pressure < 1e-9:
+            return 0.5
+        imbalance = (buying_pressure - selling_pressure) / total_pressure
+        return clip01(0.5 + imbalance * 0.5)
+
+    async def order_flow_momentum_signal(self, close: List[float], volume: List[float]) -> float:
+        if len(close) < 20:
+            return 0.5
+        flow = []
+        for i in range(1, min(20, len(close))):
+            delta = close[-(i)] - close[-(i+1)]
+            flow.append(delta * volume[-(i)])
+        if not flow:
+            return 0.5
+        recent_flow = sum(flow[:5])
+        older_flow = sum(flow[5:]) if len(flow) > 5 else 0
+        if abs(older_flow) < 1e-9:
+            return clip01(0.5 + tanh01(recent_flow / 1000) * 0.4)
+        flow_acceleration = recent_flow / (abs(older_flow) + 1)
+        return clip01(0.5 + tanh01(flow_acceleration) * 0.45)
+
+    async def volatility_regime_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        if len(close) < 30:
+            return 0.5
+        atr_recent = safe_mean([high[i] - low[i] for i in range(-10, 0)])
+        atr_older = safe_mean([high[i] - low[i] for i in range(-30, -10)])
+        if atr_older < 1e-9:
+            return 0.5
+        volatility_ratio = atr_recent / atr_older
+        if volatility_ratio < 0.7:
+            return clip01(0.75 + (0.7 - volatility_ratio) * 0.5)
+        elif volatility_ratio > 1.5:
+            return clip01(0.4 - (volatility_ratio - 1.5) * 0.2)
+        return clip01(0.5 + (1 - volatility_ratio) * 0.3)
+
+    async def price_acceleration_signal(self, close: List[float]) -> float:
+        if len(close) < 15:
+            return 0.5
+        velocity_1 = close[-1] - close[-5]
+        velocity_2 = close[-5] - close[-10]
+        velocity_3 = close[-10] - close[-15] if len(close) >= 15 else velocity_2
+        price_norm = close[-1] if close[-1] > 0 else 1.0
+        accel_1 = (velocity_1 - velocity_2) / price_norm
+        accel_2 = (velocity_2 - velocity_3) / price_norm
+        if accel_1 > 0 and accel_2 > 0:
+            return clip01(0.7 + tanh01(accel_1 * 50) * 0.25)
+        elif accel_1 > 0 and velocity_1 > 0:
+            return clip01(0.6 + tanh01(accel_1 * 50) * 0.2)
+        elif accel_1 < 0 and velocity_1 < 0:
+            return clip01(0.35 - tanh01(abs(accel_1) * 50) * 0.15)
+        return clip01(0.5)
+
+    async def volume_weighted_momentum_signal(self, close: List[float], volume: List[float]) -> float:
+        if len(close) < 20:
+            return 0.5
+        vwap_short = sum(c * v for c, v in zip(close[-5:], volume[-5:])) / max(sum(volume[-5:]), 1e-9)
+        vwap_long = sum(c * v for c, v in zip(close[-20:], volume[-20:])) / max(sum(volume[-20:]), 1e-9)
+        current = close[-1]
+        if current > vwap_short > vwap_long:
+            return clip01(0.75 + (current - vwap_short) / current * 5)
+        elif current > vwap_short:
+            return clip01(0.6 + (current - vwap_short) / current * 3)
+        elif current < vwap_short < vwap_long:
+            return clip01(0.3 - (vwap_short - current) / current * 3)
+        return clip01(0.5)
+
+    async def market_depth_score_signal(self, volume: List[float]) -> float:
+        if len(volume) < 20:
+            return 0.5
+        recent_vol = safe_mean(volume[-5:])
+        avg_vol = safe_mean(volume[-20:])
+        if avg_vol < 1e-9:
+            return 0.5
+        depth_ratio = recent_vol / avg_vol
+        if depth_ratio > 2.0:
+            return clip01(0.8 + tanh01((depth_ratio - 2) / 2) * 0.15)
+        elif depth_ratio > 1.5:
+            return clip01(0.7 + (depth_ratio - 1.5) * 0.2)
+        elif depth_ratio < 0.5:
+            return clip01(0.35)
+        return clip01(0.5 + (depth_ratio - 1) * 0.3)
+
+    async def trend_strength_index_signal(self, close: List[float]) -> float:
+        if len(close) < 30:
+            return 0.5
+        changes = [close[i] - close[i-1] for i in range(-29, 0)]
+        up_sum = sum(c for c in changes if c > 0)
+        down_sum = abs(sum(c for c in changes if c < 0))
+        if up_sum + down_sum < 1e-9:
+            return 0.5
+        tsi = (up_sum - down_sum) / (up_sum + down_sum)
+        return clip01(0.5 + tsi * 0.45)
+
+    async def reversal_probability_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        if len(close) < 20:
+            return 0.5
+        swing_high = max(high[-20:])
+        swing_low = min(low[-20:])
+        range_size = swing_high - swing_low
+        if range_size < 1e-9:
+            return 0.5
+        current_pos = (close[-1] - swing_low) / range_size
+        if current_pos < 0.15:
+            return clip01(0.85 + (0.15 - current_pos) * 0.5)
+        elif current_pos > 0.85:
+            return clip01(0.25 - (current_pos - 0.85) * 0.5)
+        return clip01(0.5)
+
+    async def breakout_velocity_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
+        if len(close) < 20:
+            return 0.5
+        recent_high = max(high[-5:])
+        recent_low = min(low[-5:])
+        older_high = max(high[-20:-5]) if len(high) > 5 else recent_high
+        older_low = min(low[-20:-5]) if len(low) > 5 else recent_low
+        current = close[-1]
+        if current > older_high:
+            breakout_strength = (current - older_high) / (older_high - older_low + 1e-9)
+            return clip01(0.75 + tanh01(breakout_strength * 2) * 0.2)
+        elif current < older_low:
+            breakdown_strength = (older_low - current) / (older_high - older_low + 1e-9)
+            return clip01(0.3 - tanh01(breakdown_strength * 2) * 0.15)
+        return clip01(0.5)
+
+    async def liquidity_adjusted_momentum_signal(self, close: List[float], volume: List[float]) -> float:
+        if len(close) < 20:
+            return 0.5
+        momentum = (close[-1] - close[-10]) / close[-10] if close[-10] > 0 else 0
+        volume_factor = safe_mean(volume[-5:]) / (safe_mean(volume[-20:]) + 1e-9)
+        adjusted_momentum = momentum * math.sqrt(max(0.1, volume_factor))
+        return clip01(0.5 + tanh01(adjusted_momentum * 20) * 0.45)
+
     async def analyze(self, symbol: str, high: List[float], low: List[float], 
                      close: List[float], volume: List[float]) -> Dict[str, Any]:
         if len(close) < 50:
@@ -582,7 +730,17 @@ class PreBreakoutDetector:
             self.obv_trend_signal(close, volume),
             self.pivot_distance_signal(high, low, close),
             self.fibonacci_level_signal(high, low, close),
-            self.parabolic_sar_signal(high, low, close)
+            self.parabolic_sar_signal(high, low, close),
+            self.bid_ask_imbalance_signal(high, low, close, volume),
+            self.order_flow_momentum_signal(close, volume),
+            self.volatility_regime_signal(high, low, close),
+            self.price_acceleration_signal(close),
+            self.volume_weighted_momentum_signal(close, volume),
+            self.market_depth_score_signal(volume),
+            self.trend_strength_index_signal(close),
+            self.reversal_probability_signal(high, low, close),
+            self.breakout_velocity_signal(high, low, close),
+            self.liquidity_adjusted_momentum_signal(close, volume)
         )
         names = [
             "rsi", "momentum_cf", "vol_spike", "pressure", "microtrend",
@@ -592,14 +750,20 @@ class PreBreakoutDetector:
             "linreg_trend", "elder_power", "ultimate_osc", "choppiness",
             "klinger_signal", "donchian_position", "cci_signal",
             "williams_r", "stoch_rsi", "mfi_signal", "obv_trend",
-            "pivot_distance", "fibonacci_level", "parabolic_sar"
+            "pivot_distance", "fibonacci_level", "parabolic_sar",
+            "bid_ask_imbalance", "order_flow_momentum", "volatility_regime",
+            "price_acceleration", "volume_weighted_momentum", "market_depth_score",
+            "trend_strength_index", "reversal_probability", "breakout_velocity",
+            "liquidity_adjusted_momentum"
         ]
         feats = {k: round(v, 4) for k, v in zip(names, tasks)}
         weights = self.cfg.weights or {}
         raw_score = sum(feats[k] * weights.get(k, 0.0) for k in names)
         high_value_signals = sum(1 for k in [
             "momentum_cf", "pressure", "impulse", "squeeze", 
-            "supertrend_conf", "adx_strength", "linreg_trend"
+            "supertrend_conf", "adx_strength", "linreg_trend",
+            "bid_ask_imbalance", "order_flow_momentum", "volume_weighted_momentum",
+            "trend_strength_index", "breakout_velocity", "liquidity_adjusted_momentum"
         ] if feats.get(k, 0) >= 0.60)
         if high_value_signals >= 5:
             raw_score *= self.cfg.momentum_boost * 1.1
@@ -658,6 +822,26 @@ class PreBreakoutDetector:
             reasons.append("Elder Ray Bull Power")
         if feats.get("klinger_signal", 0) > 0.7:
             reasons.append("Klinger Volume Confirmation")
+        if feats.get("bid_ask_imbalance", 0) > 0.65:
+            reasons.append("Strong Bid-Ask Imbalance (Buyers)")
+        if feats.get("order_flow_momentum", 0) > 0.65:
+            reasons.append("Positive Order Flow Momentum")
+        if feats.get("volatility_regime", 0) > 0.7:
+            reasons.append("Low Volatility Regime (Consolidation)")
+        if feats.get("price_acceleration", 0) > 0.65:
+            reasons.append("Price Acceleration Detected")
+        if feats.get("volume_weighted_momentum", 0) > 0.65:
+            reasons.append("Volume-Weighted Momentum Bullish")
+        if feats.get("market_depth_score", 0) > 0.7:
+            reasons.append("Strong Market Depth")
+        if feats.get("trend_strength_index", 0) > 0.65:
+            reasons.append("High Trend Strength Index")
+        if feats.get("reversal_probability", 0) > 0.75:
+            reasons.append("High Reversal Probability (Oversold)")
+        if feats.get("breakout_velocity", 0) > 0.7:
+            reasons.append("High Breakout Velocity")
+        if feats.get("liquidity_adjusted_momentum", 0) > 0.65:
+            reasons.append("Liquidity-Adjusted Momentum Signal")
         confidence = min(100, max(0, prebreakout_score * 0.9 + high_value_signals * 2))
         return {
             "symbol": symbol,

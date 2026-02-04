@@ -224,7 +224,9 @@ class TradingLearningEngine:
             
             hold_times = [t.get("duration_seconds", 0) for t in self.state.trade_history_for_learning if t.get("pnl", 0) > 0]
             if hold_times:
-                insights["optimal_max_hold_time"] = int(statistics.quantile(hold_times, 0.75))
+                sorted_times = sorted(hold_times)
+                idx = int(len(sorted_times) * 0.75)
+                insights["optimal_max_hold_time"] = int(sorted_times[min(idx, len(sorted_times) - 1)])
         
         self.state.global_insights = insights
         self.state.last_trained = datetime.now(timezone.utc).isoformat()

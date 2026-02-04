@@ -27,6 +27,7 @@ from ..risk.advanced_risk import AdvancedRiskEngine
 from ..data.alternative_data import AlternativeDataAggregator
 from ..execution.smart_execution import SmartExecutionEngine
 from ..indicators.microstructure import MicrostructureAnalyzer
+from ..analytics.kpi_tracker import KPITracker, TradeMetrics
 from .state import StateManager, TradeRecord
 
 logging.basicConfig(
@@ -68,6 +69,7 @@ class ZeusBot:
         self.alt_data = AlternativeDataAggregator()
         self.smart_exec = SmartExecutionEngine()
         self.microstructure = MicrostructureAnalyzer()
+        self.kpi_tracker = KPITracker()
         self.mode = mode
         self.running = False
         self._pairs_cache: List[str] = []
@@ -82,6 +84,8 @@ class ZeusBot:
         self._priority_refresh_interval = 900
         self._last_priority_scan = 0
         self._last_alt_data_update = 0
+        self._last_equity_snapshot = 0.0
+        self._last_equity_date = ""
 
     async def start(self) -> bool:
         logger.info(f"Starting Zeus Bot in {self.mode} mode...")
@@ -120,6 +124,7 @@ class ZeusBot:
             else:
                 logger.info(f"Paper trading balance: ${current_equity:.2f}")
             self.risk_manager.update_portfolio(self.state.state.equity, [])
+            self._record_daily_return_if_new_day(current_equity)
             return
         try:
             balances = await self.exchange.fetch_balance()
@@ -133,9 +138,22 @@ class ZeusBot:
             await self.state.update_holdings(holdings)
             await self._sync_holdings_with_positions(holdings)
             self.risk_manager.update_portfolio(equity, [])
+            self._record_daily_return_if_new_day(equity)
             logger.info(f"Balance refreshed: ${equity:.2f} | Holdings: {len(holdings)} tokens")
         except Exception as e:
             logger.error(f"Failed to refresh balance: {e}")
+
+    def _record_daily_return_if_new_day(self, current_equity: float) -> None:
+        """Record daily return for KPI tracking when day changes"""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self._last_equity_date != today and self._last_equity_snapshot > 0:
+            daily_return_pct = ((current_equity - self._last_equity_snapshot) / self._last_equity_snapshot) * 100
+            self.kpi_tracker.record_daily_return(daily_return_pct)
+            self.kpi_tracker.update_equity(current_equity)
+            logger.info(f"[KPI] Daily return recorded: {daily_return_pct:+.2f}% ({self._last_equity_date})")
+        if self._last_equity_date != today:
+            self._last_equity_snapshot = current_equity
+            self._last_equity_date = today
 
     async def _sync_holdings_with_positions(self, holdings: Dict[str, float]) -> None:
         """Ensure all token holdings are tracked - no unaccounted tokens"""
@@ -548,15 +566,18 @@ class ZeusBot:
         return signals
 
     async def execute_trade(self, signal: TradingSignal) -> Optional[str]:
+        logger.info(f"[TRADE GATE] Attempting trade: {signal.symbol} conf={signal.confidence:.1f} score={signal.prebreakout_score:.1f}")
         if not self.state.can_open_new_trade():
-            logger.warning("Max positions reached, skipping trade")
+            current_count = len(self.state.state.active_trades)
+            max_positions = self.state.state.config.max_open_positions
+            logger.warning(f"[TRADE BLOCKED] Max positions reached ({current_count}/{max_positions}), skipping {signal.symbol}")
             return None
         if signal.symbol in self.state.get_active_symbols():
-            logger.warning(f"Already have position in {signal.symbol}")
+            logger.warning(f"[TRADE BLOCKED] Already have position in {signal.symbol}")
             return None
         can_trade, reasons = self.risk_manager.can_open_position(signal.symbol)
         if not can_trade:
-            logger.warning(f"Risk check failed: {reasons}")
+            logger.warning(f"[TRADE BLOCKED] Risk check failed for {signal.symbol}: {reasons}")
             return None
         current_positions = [
             {"symbol": t.symbol, "size": t.size, "entry_price": t.entry_price, 
@@ -569,10 +590,10 @@ class ZeusBot:
             signal.take_profit, portfolio_value, current_positions
         )
         if not adv_risk.approved:
-            logger.warning(f"Advanced risk rejected: {adv_risk.rejection_reasons}")
+            logger.warning(f"[TRADE BLOCKED] Advanced risk rejected for {signal.symbol}: {adv_risk.rejection_reasons}")
             return None
         if adv_risk.warnings:
-            logger.info(f"Risk warnings: {adv_risk.warnings}")
+            logger.info(f"[TRADE INFO] Risk warnings for {signal.symbol}: {adv_risk.warnings}")
         size = self.risk_manager.calculate_optimal_size(
             signal.entry_price,
             signal.stop_loss,
@@ -580,7 +601,7 @@ class ZeusBot:
             signal.take_profit
         )
         if size <= 0:
-            logger.warning("Position size too small")
+            logger.warning(f"[TRADE BLOCKED] Position size too small for {signal.symbol} at price ${signal.entry_price:.6f}")
             return None
         if adv_risk.kelly_size > 0:
             size = min(size, adv_risk.kelly_size)
@@ -605,8 +626,9 @@ class ZeusBot:
         order_value = size * signal.entry_price
         min_order_value = 5.0
         if order_value < min_order_value:
-            logger.warning(f"Order value ${order_value:.2f} below minimum ${min_order_value:.2f}, skipping {signal.symbol}")
+            logger.warning(f"[TRADE BLOCKED] Order value ${order_value:.2f} below minimum ${min_order_value:.2f}, skipping {signal.symbol}")
             return None
+        logger.info(f"[TRADE APPROVED] {signal.symbol}: size={size:.6f} value=${order_value:.2f} conf={signal.confidence:.1f}%")
         trade_id = f"T{int(time.time() * 1000)}"
         if self.mode == "LIVE":
             try:
@@ -950,6 +972,19 @@ class ZeusBot:
                 strategy=closed_trade.strategy,
                 entry_hour=entry_hour
             )
+            trade_metrics = TradeMetrics(
+                symbol=closed_trade.symbol,
+                pnl=closed_trade.pnl,
+                pnl_pct=pnl_pct,
+                hold_time_seconds=duration,
+                entry_price=closed_trade.entry_price,
+                exit_price=exit_price,
+                size=closed_trade.size,
+                confidence=closed_trade.confidence,
+                timestamp=exit_time.isoformat()
+            )
+            self.kpi_tracker.record_trade(trade_metrics)
+            self.kpi_tracker.update_equity(self.state.state.equity)
             logger.info(f"Trade closed: {closed_trade.symbol} PnL: ${closed_trade.pnl:.2f} ({pnl_pct:+.2f}%)")
 
     async def run_priority_cycle(self) -> None:
@@ -981,6 +1016,9 @@ class ZeusBot:
                             if ml_reasons:
                                 signal.reasons.extend(ml_reasons)
                             await self.execute_trade(signal)
+                        else:
+                            block_reason = "should_trade=False" if not should_trade else f"confidence {adjusted_conf:.1f} < min {self.state.state.config.min_confidence}"
+                            logger.info(f"[TRADE BLOCKED] ML blocked {signal.symbol}: {block_reason} | Details: {ml_reasons}")
             await self.manage_positions()
         except Exception as e:
             logger.error(f"Priority cycle error: {e}")
@@ -1016,7 +1054,8 @@ class ZeusBot:
                                 signal.reasons.extend(ml_reasons)
                             await self.execute_trade(signal)
                         else:
-                            logger.info(f"ML blocked trade for {signal.symbol}: {ml_reasons}")
+                            block_reason = "should_trade=False" if not should_trade else f"confidence {adjusted_conf:.1f} < min {self.state.state.config.min_confidence}"
+                            logger.info(f"[TRADE BLOCKED] ML blocked {signal.symbol}: {block_reason} | Details: {ml_reasons}")
                     else:
                         logger.info(f"Max positions ({self.state.state.config.max_open_positions}) reached, monitoring existing trades")
             await self.manage_positions()
