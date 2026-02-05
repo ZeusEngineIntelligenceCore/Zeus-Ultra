@@ -33,6 +33,8 @@ Zeus is built around a modular architecture with a core trading engine supported
   3. **Telegram Learning Engine**: Adapts notifications based on user interaction patterns.
   The system continuously improves through optimization cycles that update indicator importance weights and confidence thresholds.
 - **Secret Weapons Module** (NEW): Includes Smart Money Flow detection (OBV divergence, CMF, Accumulation/Distribution), Whale Activity detection (volume anomalies, large order ratio), Altcoin Season Index, and Portfolio Correlation Matrix for diversification analysis.
+- **Advanced Exit Strategies** (NEW): Quick win detection (1.5% in 15 mins), partial profit taking at multiple levels, dynamic trailing stops, momentum reversal exits, and time-based exit optimization.
+- **Breakout & Fakeout Analyzer** (NEW): Enhanced breakout quality scoring, multi-factor fakeout detection, volume spike/fallout monitoring, and whale activity signals for better entry/exit timing.
 - **KPI Analytics System**: Tracks 20+ critical performance metrics including Sharpe ratio, Sortino ratio, max drawdown, win rate, profit factor, expectancy, Calmar ratio, trade frequency, average hold times, symbol-level performance, Recovery Factor, Ulcer Index, Tail Ratio, CAGR, K-Ratio, Consecutive Streaks, Risk of Ruin, Common Sense Ratio, Gain-to-Pain Ratio, and Time-Weighted Return. Records daily returns and hourly performance analysis.
 - **Trading Configuration**: Supports a maximum of 100 open positions, a minimum profit target of 3-4%, continuous holdings monitoring, full market scans every 300 seconds, and position scans every 60 seconds.
 - **Authentication**: Uses Replit Auth for user authentication, supporting various social logins and email/password, with protected routes.

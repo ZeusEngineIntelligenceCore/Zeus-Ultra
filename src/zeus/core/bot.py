@@ -73,7 +73,11 @@ class ZeusBot:
         self.microstructure = MicrostructureAnalyzer()
         self.kpi_tracker = KPITracker()
         from ..analytics.secret_weapons import SecretWeapons
+        from ..strategies.exit_strategies import AdvancedExitManager
+        from ..indicators.breakout_analyzer import BreakoutAnalyzer
         self.secret_weapons = SecretWeapons()
+        self.exit_manager = AdvancedExitManager()
+        self.breakout_analyzer = BreakoutAnalyzer()
         self.mode = mode
         self.running = False
         self._pairs_cache: List[str] = []
@@ -919,6 +923,78 @@ class ZeusBot:
                     if trade.fakeout_signals >= 10 and profit_from_entry > 0.10:
                         should_close = True
                         close_reason = f"Fakeout Protection ({trade.fakeout_signals} weak peaks detected)"
+                    
+                    try:
+                        entry_time = datetime.fromisoformat(trade.entry_time.replace('Z', '+00:00'))
+                        ohlcv = await self.exchange.fetch_ohlcv(trade.symbol, "5m", 50)
+                        if len(ohlcv) >= 20:
+                            high = [c.high for c in ohlcv]
+                            low = [c.low for c in ohlcv]
+                            close = [c.close for c in ohlcv]
+                            volume = [c.volume for c in ohlcv]
+                            indicators = self.signal_gen.math.calculate_all(high, low, close, volume)
+                            atr = indicators.get("atr", current_price * 0.02)
+                            rsi = indicators.get("rsi", 50)
+                            rsi_prev = indicators.get("rsi_prev", rsi)
+                            macd_hist = indicators.get("macd_histogram", 0)
+                            macd_prev_hist = indicators.get("macd_prev_histogram", macd_hist)
+                            avg_vol = sum(volume[-20:]) / 20
+                            
+                            exit_signal = self.exit_manager.get_optimal_exit(
+                                trade_id, trade.entry_price, current_price, trade.peak_price,
+                                entry_time, atr, rsi, rsi_prev, macd_hist, macd_prev_hist,
+                                volume[-1], avg_vol
+                            )
+                            
+                            if exit_signal and exit_signal.should_exit:
+                                if exit_signal.reason.value == "quick_win":
+                                    should_close = True
+                                    close_reason = f"Quick Win ({exit_signal.details.get('profit_pct', 0):.1f}% in {exit_signal.details.get('hold_time_mins', 0):.0f}m)"
+                                    logger.info(f"{trade.symbol} QUICK WIN detected!")
+                                elif exit_signal.reason.value == "momentum_reversal" and exit_signal.confidence > 0.6:
+                                    should_close = True
+                                    close_reason = f"Momentum Reversal (RSI: {exit_signal.details.get('rsi', 0):.0f})"
+                                elif exit_signal.reason.value == "volume_collapse" and profit_from_entry > 0.02:
+                                    should_close = True
+                                    close_reason = f"Volume Collapse ({exit_signal.details.get('volume_ratio', 0):.1%} of avg)"
+                            
+                            is_fakeout, fakeout_prob, fakeout_reason = self.breakout_analyzer.is_fakeout_reversal(
+                                close, high, low, volume, trade.entry_price, "up"
+                            )
+                            if is_fakeout and profit_from_entry > 0.01:
+                                trade.fakeout_signals += 2
+                                logger.warning(f"{trade.symbol} fakeout signal: {fakeout_reason} (prob: {fakeout_prob:.1%})")
+                                if fakeout_prob > 0.7 and profit_from_entry > 0.03:
+                                    should_close = True
+                                    close_reason = f"Confirmed Fakeout ({fakeout_reason})"
+                            
+                            vol_spike = self.breakout_analyzer.detect_volume_spike(volume, close)
+                            if vol_spike.detected and vol_spike.type == "bearish" and vol_spike.strength > 3:
+                                logger.warning(f"{trade.symbol} bearish volume spike detected (strength: {vol_spike.strength:.1f})")
+                                if profit_from_entry > 0.05:
+                                    should_close = True
+                                    close_reason = f"Bearish Volume Spike (strength: {vol_spike.strength:.1f})"
+                            
+                            vol_fallout = self.breakout_analyzer.detect_volume_fallout(volume)
+                            if vol_fallout.detected and vol_fallout.warning_level == "critical":
+                                logger.warning(f"{trade.symbol} critical volume fallout detected")
+                            
+                            trailing_hit, stop_price, distance = self.exit_manager.calculate_trailing_stop(
+                                trade.entry_price, current_price, trade.peak_price, atr
+                            )
+                            if trailing_hit and profit_from_entry > 0.015:
+                                should_close = True
+                                close_reason = f"Trailing Stop Hit (stop: ${stop_price:.6f}, distance: {distance:.1%})"
+                                logger.info(f"{trade.symbol} trailing stop triggered at ${stop_price:.6f}")
+                            
+                            partial_exit = self.exit_manager.check_partial_profits(
+                                trade_id, trade.entry_price, current_price
+                            )
+                            if partial_exit and partial_exit.should_exit and partial_exit.exit_size_pct < 100:
+                                partial_size = trade.size * (partial_exit.exit_size_pct / 100)
+                                logger.info(f"{trade.symbol} partial profit at level {partial_exit.details.get('level', 0)} - sell {partial_exit.exit_size_pct:.0f}%")
+                    except Exception as e:
+                        logger.debug(f"Advanced exit check error: {e}")
                     
                     if len(trade.price_history) >= 20:
                         recent_prices = trade.price_history[-20:]

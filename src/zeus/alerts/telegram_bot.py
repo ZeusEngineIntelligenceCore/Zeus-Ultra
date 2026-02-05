@@ -853,6 +853,7 @@ class TelegramAlerts:
 /ml - ML learning insights
 /fear - Fear & Greed Index
 /scan - Force market scan
+/whale &lt;symbol&gt; - Whale detection
 
 <b>Settings:</b>
 /settings - View current settings
@@ -1099,6 +1100,46 @@ Use the buttons below or type commands to interact with me.
         except Exception as e:
             await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
 
+    async def cmd_whale(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            args = context.args if context.args else []
+            symbol = args[0].upper() + "USD" if args else "BTCUSD"
+            ohlcv = await self._bot_ref.exchange.fetch_ohlcv(symbol, "1h", 100)
+            if len(ohlcv) < 50:
+                await update.message.reply_text(f"⚠️ Not enough data for {symbol}", reply_markup=self.get_main_keyboard())
+                return
+            close = [c.close for c in ohlcv]
+            volume = [c.volume for c in ohlcv]
+            whale_signals = self._bot_ref.breakout_analyzer.get_whale_volume_signals(volume, close)
+            vol_spike = self._bot_ref.breakout_analyzer.detect_volume_spike(volume, close)
+            vol_fallout = self._bot_ref.breakout_analyzer.detect_volume_fallout(volume)
+            activity = whale_signals.get("whale_activity", "unknown")
+            emoji = "🐋" if activity == "high" else "🐬" if activity == "moderate" else "🐟"
+            msg = f"{emoji} <b>WHALE DETECTION: {symbol}</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"<b>Activity Level:</b> {activity.upper()}\n"
+            msg += f"<b>Extreme Volume Events:</b> {whale_signals.get('extreme_volume_count', 0)}\n"
+            msg += f"<b>Volume Imbalance:</b> {whale_signals.get('volume_imbalance', 0):.1%}\n\n"
+            if vol_spike.detected:
+                msg += f"<b>⚡ Volume Spike:</b>\n"
+                msg += f"  Type: {vol_spike.type.upper()}\n"
+                msg += f"  Strength: {vol_spike.strength:.1f}/10\n"
+                msg += f"  Sustainability: {vol_spike.sustainability:.0%}\n\n"
+            if vol_fallout.detected:
+                msg += f"<b>📉 Volume Fallout:</b>\n"
+                msg += f"  Severity: {vol_fallout.severity:.0%}\n"
+                msg += f"  Warning: {vol_fallout.warning_level.upper()}\n\n"
+            signals = whale_signals.get("signals", [])
+            if signals:
+                msg += "<b>Detected Signals:</b>\n"
+                for sig in signals[:3]:
+                    msg += f"• {sig.get('type', '').replace('_', ' ').title()}\n"
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
     async def cmd_streak(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
         if not self._bot_ref:
             await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
@@ -1322,6 +1363,7 @@ Tap the button below to open:
                     BotCommand("best", "View best performing coins"),
                     BotCommand("worst", "View worst performing coins"),
                     BotCommand("streak", "View win/loss streaks"),
+                    BotCommand("whale", "Whale detection - /whale BTC"),
                     BotCommand("settings", "View and manage bot settings"),
                     BotCommand("report", "Generate performance report"),
                     BotCommand("help", "Show available commands")
