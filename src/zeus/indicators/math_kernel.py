@@ -706,6 +706,128 @@ class MathKernel:
         return (std / abs(mean)) * 100
 
     @classmethod
+    def schaff_trend_cycle(cls, close: List[float], fast: int = 23, slow: int = 50, cycle: int = 10) -> float:
+        if len(close) < slow + cycle:
+            return 50.0
+        ema_fast = cls.ema(close, fast)
+        ema_slow = cls.ema(close, slow)
+        macd_val = ema_fast - ema_slow
+        macd_series = [0.0] * len(close)
+        for i in range(slow, len(close)):
+            ef = cls.ema(close[:i+1], fast)
+            es = cls.ema(close[:i+1], slow)
+            macd_series[i] = ef - es
+        recent = macd_series[-cycle:]
+        low_macd = min(recent) if recent else 0
+        high_macd = max(recent) if recent else 0
+        if high_macd - low_macd == 0:
+            return 50.0
+        stoch1 = ((macd_val - low_macd) / (high_macd - low_macd)) * 100
+        return max(0, min(100, stoch1))
+
+    @classmethod
+    def fisher_transform(cls, close: List[float], length: int = 9) -> float:
+        if len(close) < length:
+            return 0.0
+        high_val = max(close[-length:])
+        low_val = min(close[-length:])
+        if high_val == low_val:
+            return 0.0
+        value = 2 * ((close[-1] - low_val) / (high_val - low_val)) - 1
+        value = max(-0.999, min(0.999, value * 0.67))
+        fisher = 0.5 * math.log((1 + value) / (1 - value))
+        return round(fisher, 4)
+
+    @classmethod
+    def detrended_price_oscillator(cls, close: List[float], length: int = 20) -> float:
+        if len(close) < length + length // 2 + 1:
+            return 0.0
+        sma = cls.sma(close[:-length//2-1], length)
+        return round(close[-length//2-1] - sma, 6)
+
+    @classmethod
+    def know_sure_thing(cls, close: List[float]) -> Tuple[float, float]:
+        if len(close) < 30:
+            return 0.0, 0.0
+        roc1 = cls.rate_of_change(close[-10:], 10)
+        roc2 = cls.rate_of_change(close[-15:], 15)
+        roc3 = cls.rate_of_change(close[-20:], 20)
+        roc4 = cls.rate_of_change(close[-30:], 30)
+        kst = roc1 * 1 + roc2 * 2 + roc3 * 3 + roc4 * 4
+        signal = cls.ema([kst] * 9, 9)
+        return round(kst, 4), round(signal, 4)
+
+    @classmethod
+    def chande_momentum(cls, close: List[float], length: int = 9) -> float:
+        if len(close) < length + 1:
+            return 0.0
+        gains = []
+        losses = []
+        for i in range(-length, 0):
+            change = close[i] - close[i-1]
+            if change > 0:
+                gains.append(change)
+            else:
+                losses.append(abs(change))
+        sum_gains = sum(gains)
+        sum_losses = sum(losses)
+        if sum_gains + sum_losses == 0:
+            return 0.0
+        return round(((sum_gains - sum_losses) / (sum_gains + sum_losses)) * 100, 2)
+
+    @classmethod
+    def relative_vigor_index(cls, high: List[float], low: List[float], close: List[float], 
+                              open_prices: Optional[List[float]] = None, length: int = 10) -> float:
+        if len(close) < length + 3:
+            return 0.0
+        if open_prices is None:
+            open_prices = [close[max(0,i-1)] for i in range(len(close))]
+        numerator = 0.0
+        denominator = 0.0
+        for i in range(-length, 0):
+            co = close[i] - open_prices[i]
+            hl = high[i] - low[i]
+            numerator += co
+            denominator += hl
+        if denominator == 0:
+            return 0.0
+        return round(numerator / denominator, 4)
+
+    @classmethod
+    def percentage_price_oscillator(cls, close: List[float], fast: int = 12, slow: int = 26) -> Tuple[float, float, float]:
+        if len(close) < slow:
+            return 0.0, 0.0, 0.0
+        ema_fast = cls.ema(close, fast)
+        ema_slow = cls.ema(close, slow)
+        if ema_slow == 0:
+            return 0.0, 0.0, 0.0
+        ppo = ((ema_fast - ema_slow) / ema_slow) * 100
+        signal = cls.ema([ppo] * 9, 9)
+        histogram = ppo - signal
+        return round(ppo, 4), round(signal, 4), round(histogram, 4)
+
+    @classmethod
+    def balance_of_power(cls, high: List[float], low: List[float], close: List[float],
+                         open_prices: Optional[List[float]] = None) -> float:
+        if not close or len(close) < 1:
+            return 0.0
+        if open_prices is None:
+            open_prices = [close[max(0,i-1)] for i in range(len(close))]
+        hl_diff = high[-1] - low[-1]
+        if hl_diff == 0:
+            return 0.0
+        return round((close[-1] - open_prices[-1]) / hl_diff, 4)
+
+    @classmethod
+    def price_momentum_oscillator(cls, close: List[float], length1: int = 35, length2: int = 20) -> float:
+        if len(close) < length1 + length2:
+            return 0.0
+        roc = cls.rate_of_change(close, 1)
+        smoothed1 = cls.ema([roc] * length1, length1)
+        smoothed2 = cls.ema([smoothed1] * length2, length2)
+        return round(smoothed2 * 10, 4)
+
+    @classmethod
     def calculate_all(cls, high: List[float], low: List[float], close: List[float], 
                       volume: List[float]) -> dict:
         aroon_up, aroon_down, aroon_osc = cls.aroon(high, low)
@@ -716,6 +838,8 @@ class MathKernel:
         bull_power, bear_power = cls.elder_ray(high, low, close)
         kvo, kvo_signal = cls.klinger_oscillator(high, low, close, volume)
         linreg_val, linreg_slope, linreg_r2 = cls.linear_regression(close)
+        kst_val, kst_signal = cls.know_sure_thing(close)
+        ppo_val, ppo_signal, ppo_hist = cls.percentage_price_oscillator(close)
         
         return {
             "rsi": cls.rsi(close),
@@ -768,5 +892,17 @@ class MathKernel:
             "coef_variation": cls.coefficient_of_variation(close),
             "klinger": kvo,
             "klinger_signal": kvo_signal,
-            "hull_ma": cls.hull_ma(close, 20)
+            "hull_ma": cls.hull_ma(close, 20),
+            "schaff_trend_cycle": cls.schaff_trend_cycle(close),
+            "fisher_transform": cls.fisher_transform(close),
+            "dpo": cls.detrended_price_oscillator(close),
+            "kst": kst_val,
+            "kst_signal": kst_signal,
+            "chande_momentum": cls.chande_momentum(close),
+            "rvi": cls.relative_vigor_index(high, low, close),
+            "ppo": ppo_val,
+            "ppo_signal": ppo_signal,
+            "ppo_histogram": ppo_hist,
+            "balance_of_power": cls.balance_of_power(high, low, close),
+            "pmo": cls.price_momentum_oscillator(close)
         }

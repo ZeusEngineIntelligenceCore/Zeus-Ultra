@@ -201,6 +201,141 @@ class KPITracker:
         total_time = sum(t.hold_time_seconds for t in self.state.trades)
         return round(total_time / len(self.state.trades) / 3600, 2)
 
+    def calculate_recovery_factor(self) -> float:
+        max_dd, _ = self.calculate_max_drawdown()
+        total_pnl = sum(t.pnl for t in self.state.trades)
+        if max_dd <= 0:
+            return 0.0
+        return round(total_pnl / (self.state.peak_equity * max_dd / 100), 2) if self.state.peak_equity > 0 else 0.0
+
+    def calculate_ulcer_index(self) -> float:
+        if len(self.state.daily_returns) < 14:
+            return 0.0
+        returns = self.state.daily_returns[-252:]
+        equity = 100.0
+        peak = equity
+        sum_sq_dd = 0.0
+        for r in returns:
+            equity *= (1 + r / 100)
+            peak = max(peak, equity)
+            dd_pct = ((peak - equity) / peak) * 100
+            sum_sq_dd += dd_pct ** 2
+        return round(math.sqrt(sum_sq_dd / len(returns)), 3)
+
+    def calculate_tail_ratio(self) -> float:
+        if len(self.state.trades) < 20:
+            return 0.0
+        pnl_pcts = sorted([t.pnl_pct for t in self.state.trades])
+        n = len(pnl_pcts)
+        percentile_95 = pnl_pcts[int(n * 0.95)] if n > 20 else pnl_pcts[-1]
+        percentile_05 = abs(pnl_pcts[int(n * 0.05)]) if n > 20 else abs(pnl_pcts[0])
+        if percentile_05 == 0:
+            return 0.0
+        return round(percentile_95 / percentile_05, 2)
+
+    def calculate_cagr(self) -> float:
+        if not self.state.trades or self.state.starting_equity <= 0:
+            return 0.0
+        start_date = datetime.fromisoformat(self.state.trades[0].timestamp.replace('Z', '+00:00'))
+        years = max(0.01, (datetime.now(timezone.utc) - start_date).days / 365.25)
+        ratio = self.state.current_equity / self.state.starting_equity
+        if ratio <= 0:
+            return 0.0
+        return round((ratio ** (1 / years) - 1) * 100, 2)
+
+    def calculate_k_ratio(self) -> float:
+        if len(self.state.trades) < 10:
+            return 0.0
+        cumulative_pnl = []
+        running = 0.0
+        for t in self.state.trades[-100:]:
+            running += t.pnl
+            cumulative_pnl.append(running)
+        n = len(cumulative_pnl)
+        x_mean = (n - 1) / 2
+        y_mean = sum(cumulative_pnl) / n
+        numerator = sum((i - x_mean) * (cumulative_pnl[i] - y_mean) for i in range(n))
+        denominator = sum((i - x_mean) ** 2 for i in range(n))
+        if denominator == 0:
+            return 0.0
+        slope = numerator / denominator
+        residuals = [cumulative_pnl[i] - (slope * i + y_mean - slope * x_mean) for i in range(n)]
+        std_err = math.sqrt(sum(r ** 2 for r in residuals) / (n - 2)) if n > 2 else 1
+        return round(slope / (std_err * math.sqrt(denominator)), 3) if std_err > 0 else 0.0
+
+    def calculate_consecutive_streaks(self) -> Dict[str, int]:
+        if not self.state.trades:
+            return {"current_streak": 0, "max_win_streak": 0, "max_loss_streak": 0}
+        current_streak = 0
+        max_win_streak = 0
+        max_loss_streak = 0
+        win_streak = 0
+        loss_streak = 0
+        for t in self.state.trades:
+            if t.pnl > 0:
+                win_streak += 1
+                loss_streak = 0
+                max_win_streak = max(max_win_streak, win_streak)
+            else:
+                loss_streak += 1
+                win_streak = 0
+                max_loss_streak = max(max_loss_streak, loss_streak)
+        current_streak = win_streak if win_streak > 0 else -loss_streak
+        return {"current_streak": current_streak, "max_win_streak": max_win_streak, "max_loss_streak": max_loss_streak}
+
+    def calculate_risk_of_ruin(self, risk_per_trade: float = 2.0) -> float:
+        win_rate = self.calculate_win_rate() / 100
+        if win_rate <= 0 or win_rate >= 1:
+            return 0.0
+        avg_win, avg_loss, _ = self.calculate_average_win_loss()
+        if avg_loss == 0:
+            return 0.0
+        edge = win_rate * avg_win - (1 - win_rate) * abs(avg_loss)
+        if edge <= 0:
+            return 100.0
+        prob_loss = 1 - win_rate
+        if prob_loss >= win_rate:
+            return min(100, round((prob_loss / win_rate) ** (100 / risk_per_trade) * 100, 2))
+        return round((prob_loss / win_rate) ** (100 / risk_per_trade) * 100, 4)
+
+    def calculate_common_sense_ratio(self) -> float:
+        pf = self.calculate_profit_factor()
+        wr = self.calculate_win_rate() / 100
+        tail = self.calculate_tail_ratio()
+        return round(pf * wr * (1 + tail / 10), 2)
+
+    def calculate_gain_to_pain(self) -> float:
+        if not self.state.trades:
+            return 0.0
+        total_gain = sum(t.pnl for t in self.state.trades if t.pnl > 0)
+        total_pain = abs(sum(t.pnl for t in self.state.trades if t.pnl < 0))
+        return round(total_gain / total_pain, 2) if total_pain > 0 else 0.0
+
+    def calculate_time_weighted_return(self) -> float:
+        if len(self.state.daily_returns) < 2:
+            return 0.0
+        twr = 1.0
+        for r in self.state.daily_returns[-90:]:
+            twr *= (1 + r / 100)
+        return round((twr - 1) * 100, 2)
+
+    def get_hourly_performance(self) -> Dict[int, Dict[str, Any]]:
+        hourly = {h: {"trades": 0, "wins": 0, "pnl": 0.0} for h in range(24)}
+        for t in self.state.trades:
+            try:
+                ts = datetime.fromisoformat(t.timestamp.replace('Z', '+00:00'))
+                hour = ts.hour
+                hourly[hour]["trades"] += 1
+                hourly[hour]["pnl"] += t.pnl
+                if t.pnl > 0:
+                    hourly[hour]["wins"] += 1
+            except:
+                pass
+        for h, stats in hourly.items():
+            if stats["trades"] > 0:
+                stats["win_rate"] = round(stats["wins"] / stats["trades"] * 100, 1)
+        return hourly
+
     def get_all_kpis(self) -> Dict[str, Any]:
         sharpe = self.calculate_sharpe_ratio()
         sortino = self.calculate_sortino_ratio()
@@ -212,6 +347,7 @@ class KPITracker:
         calmar = self.calculate_calmar_ratio()
         frequency = self.calculate_trade_frequency()
         avg_hold = self.calculate_avg_hold_time()
+        streaks = self.calculate_consecutive_streaks()
         
         return {
             "sharpe_ratio": sharpe,
@@ -233,6 +369,18 @@ class KPITracker:
             "current_equity": self.state.current_equity,
             "peak_equity": self.state.peak_equity,
             "total_pnl": sum(t.pnl for t in self.state.trades),
+            "recovery_factor": self.calculate_recovery_factor(),
+            "ulcer_index": self.calculate_ulcer_index(),
+            "tail_ratio": self.calculate_tail_ratio(),
+            "cagr": self.calculate_cagr(),
+            "k_ratio": self.calculate_k_ratio(),
+            "current_streak": streaks["current_streak"],
+            "max_win_streak": streaks["max_win_streak"],
+            "max_loss_streak": streaks["max_loss_streak"],
+            "risk_of_ruin": self.calculate_risk_of_ruin(),
+            "common_sense_ratio": self.calculate_common_sense_ratio(),
+            "gain_to_pain": self.calculate_gain_to_pain(),
+            "time_weighted_return_90d": self.calculate_time_weighted_return(),
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 

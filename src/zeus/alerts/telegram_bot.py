@@ -833,25 +833,35 @@ class TelegramAlerts:
         return """
 ❓ <b>ZEUS COMMAND HELP</b>
 
-<b>Available Commands:</b>
-
+<b>Core Commands:</b>
 /dashboard - Open web dashboard
 /analyze &lt;symbol&gt; - Full 30 KPI analysis
 /status - View bot status & stats
 /portfolio - View token holdings
 /trades - View active trades
 /candidates - View top trading candidates
+
+<b>Analytics Commands:</b>
 /performance - View performance analytics
+/kpi - View all 20+ advanced KPIs
+/streak - View win/loss streaks
+/best - Best performing coins
+/worst - Worst performing coins
+
+<b>Intelligence Commands:</b>
+/regime - Current market regime
+/ml - ML learning insights
+/fear - Fear & Greed Index
+/scan - Force market scan
+
+<b>Settings:</b>
 /settings - View current settings
 /report - Get performance report
 /help - Show this help message
 
-<b>Analyzer Examples:</b>
+<b>Examples:</b>
 /analyze BTC - Analyze Bitcoin
-/analyze FIS - Analyze FIS token
-
-<b>Quick Actions:</b>
-Use the buttons below messages for quick navigation.
+/analyze SOL - Analyze Solana
 
 <b>Automatic Features:</b>
 • Daily performance summaries
@@ -940,6 +950,176 @@ Use the buttons below or type commands to interact with me.
     async def cmd_help(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
         response = await self.handle_command_help()
         await update.message.reply_text(response, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+
+    async def cmd_kpi(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            kpis = self._bot_ref.kpi_tracker.get_all_kpis()
+            msg = "📊 <b>ZEUS ADVANCED KPIs</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"<b>Core Metrics:</b>\n"
+            msg += f"• Sharpe Ratio: {kpis.get('sharpe_ratio', 0):.3f}\n"
+            msg += f"• Sortino Ratio: {kpis.get('sortino_ratio', 0):.3f}\n"
+            msg += f"• Calmar Ratio: {kpis.get('calmar_ratio', 0):.3f}\n"
+            msg += f"• Win Rate: {kpis.get('win_rate_pct', 0):.1f}%\n"
+            msg += f"• Profit Factor: {kpis.get('profit_factor', 0):.2f}\n\n"
+            msg += f"<b>Risk Metrics:</b>\n"
+            msg += f"• Max Drawdown: {kpis.get('max_drawdown_pct', 0):.2f}%\n"
+            msg += f"• Current DD: {kpis.get('current_drawdown_pct', 0):.2f}%\n"
+            msg += f"• Recovery Factor: {kpis.get('recovery_factor', 0):.2f}\n"
+            msg += f"• Ulcer Index: {kpis.get('ulcer_index', 0):.3f}\n"
+            msg += f"• Risk of Ruin: {kpis.get('risk_of_ruin', 0):.4f}%\n\n"
+            msg += f"<b>Performance:</b>\n"
+            msg += f"• CAGR: {kpis.get('cagr', 0):.2f}%\n"
+            msg += f"• K-Ratio: {kpis.get('k_ratio', 0):.3f}\n"
+            msg += f"• Tail Ratio: {kpis.get('tail_ratio', 0):.2f}\n"
+            msg += f"• Common Sense: {kpis.get('common_sense_ratio', 0):.2f}\n"
+            msg += f"• Gain/Pain: {kpis.get('gain_to_pain', 0):.2f}\n\n"
+            msg += f"<b>Streaks:</b>\n"
+            msg += f"• Current: {kpis.get('current_streak', 0):+d}\n"
+            msg += f"• Best Win: {kpis.get('max_win_streak', 0)}\n"
+            msg += f"• Worst Loss: {kpis.get('max_loss_streak', 0)}\n"
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
+    async def cmd_regime(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            regime = self._bot_ref.advanced_ml.state.current_regime or {}
+            regime_type = regime.get("regime_type", "UNKNOWN")
+            confidence = regime.get("confidence", 0) * 100
+            detected_at = regime.get("detected_at", "N/A")
+            emoji = {"TRENDING_UP": "📈", "TRENDING_DOWN": "📉", "RANGING": "↔️", "HIGH_VOLATILITY": "⚡", "LOW_VOLATILITY": "😴"}.get(regime_type, "❓")
+            msg = f"🌍 <b>MARKET REGIME ANALYSIS</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"<b>Current Regime:</b> {emoji} {regime_type}\n"
+            msg += f"<b>Confidence:</b> {confidence:.1f}%\n"
+            msg += f"<b>Volatility %:</b> {regime.get('volatility_percentile', 0)*100:.1f}%\n"
+            msg += f"<b>Trend Strength:</b> {regime.get('trend_strength', 0):.2f}\n"
+            msg += f"<b>BTC Correlation:</b> {regime.get('btc_correlation', 0):.2f}\n"
+            msg += f"<b>Updated:</b> {detected_at[:19] if detected_at != 'N/A' else 'N/A'}\n"
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
+    async def cmd_ml(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            summary = self._bot_ref.advanced_ml.get_learning_summary()
+            msg = "🤖 <b>ML LEARNING INSIGHTS</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"<b>Pattern Memory:</b>\n"
+            msg += f"• Total Patterns: {summary.get('total_patterns', 0)}\n"
+            msg += f"• Winning: {summary.get('winning_patterns', 0)}\n"
+            msg += f"• Losing: {summary.get('losing_patterns', 0)}\n\n"
+            msg += f"<b>Reinforcement Learning:</b>\n"
+            rl = summary.get('reinforcement_state', {})
+            msg += f"• Exploration Rate: {rl.get('exploration_rate', 0):.2f}\n"
+            msg += f"• Action Values: {rl.get('action_value_count', 0)}\n"
+            msg += f"• Training Epochs: {summary.get('training_epochs', 0)}\n\n"
+            msg += f"<b>Top Indicators:</b>\n"
+            for idx, (ind, score) in enumerate(list(summary.get('top_indicators', {}).items())[:5]):
+                msg += f"{idx+1}. {ind}: {score:.3f}\n"
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
+    async def cmd_fear(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            fg = self._bot_ref.alt_data.get_fear_greed()
+            value = fg.value if fg else 50
+            classification = fg.classification if fg else "Neutral"
+            emoji = "😱" if value < 25 else "😟" if value < 45 else "😐" if value < 55 else "😊" if value < 75 else "🤑"
+            bar = "█" * (value // 5) + "░" * (20 - value // 5)
+            msg = f"😱 <b>FEAR & GREED INDEX</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"<b>Current:</b> {emoji} {value}/100\n"
+            msg += f"<b>Status:</b> {classification}\n\n"
+            msg += f"<code>[{bar}]</code>\n\n"
+            msg += "0=Extreme Fear | 100=Extreme Greed\n\n"
+            advice = "🟢 Good buying opportunity" if value < 25 else "🟡 Caution advised" if value < 45 else "⚪ Neutral market" if value < 55 else "🟠 Consider taking profits" if value < 75 else "🔴 High risk of correction"
+            msg += f"<b>Signal:</b> {advice}"
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
+    async def cmd_scan(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            await update.message.reply_text("🔍 Starting market scan...\nThis may take 1-2 minutes.", parse_mode="HTML")
+            import asyncio
+            asyncio.create_task(self._bot_ref.scan_markets())
+            await update.message.reply_text("✅ Scan initiated! Use /candidates to see results.", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
+    async def cmd_best(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            symbol_perf = self._bot_ref.kpi_tracker.get_symbol_performance()
+            sorted_symbols = sorted(symbol_perf.items(), key=lambda x: x[1].get('total_pnl', 0), reverse=True)[:10]
+            msg = "🏆 <b>TOP PERFORMERS</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            for i, (symbol, stats) in enumerate(sorted_symbols):
+                pnl = stats.get('total_pnl', 0)
+                wr = stats.get('win_rate', 0)
+                trades = stats.get('trades', 0)
+                msg += f"{i+1}. <b>{symbol}</b>\n   PnL: ${pnl:.2f} | WR: {wr:.0f}% | Trades: {trades}\n"
+            if not sorted_symbols:
+                msg += "No trade data available yet."
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
+    async def cmd_worst(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            symbol_perf = self._bot_ref.kpi_tracker.get_symbol_performance()
+            sorted_symbols = sorted(symbol_perf.items(), key=lambda x: x[1].get('total_pnl', 0))[:10]
+            msg = "📉 <b>WORST PERFORMERS</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            for i, (symbol, stats) in enumerate(sorted_symbols):
+                pnl = stats.get('total_pnl', 0)
+                wr = stats.get('win_rate', 0)
+                trades = stats.get('trades', 0)
+                msg += f"{i+1}. <b>{symbol}</b>\n   PnL: ${pnl:.2f} | WR: {wr:.0f}% | Trades: {trades}\n"
+            if not sorted_symbols:
+                msg += "No trade data available yet."
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
+    async def cmd_streak(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            streaks = self._bot_ref.kpi_tracker.calculate_consecutive_streaks()
+            hourly = self._bot_ref.kpi_tracker.get_hourly_performance()
+            best_hour = max(hourly.items(), key=lambda x: x[1].get('pnl', 0) if x[1].get('trades', 0) > 0 else -999)[0]
+            worst_hour = min(hourly.items(), key=lambda x: x[1].get('pnl', 0) if x[1].get('trades', 0) > 0 else 999)[0]
+            current = streaks.get('current_streak', 0)
+            streak_emoji = "🔥" if current > 0 else "❄️" if current < 0 else "➖"
+            msg = f"📈 <b>STREAK ANALYSIS</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"<b>Current Streak:</b> {streak_emoji} {current:+d}\n"
+            msg += f"<b>Best Win Streak:</b> 🏆 {streaks.get('max_win_streak', 0)}\n"
+            msg += f"<b>Worst Loss Streak:</b> 💀 {streaks.get('max_loss_streak', 0)}\n\n"
+            msg += f"<b>Time Analysis:</b>\n"
+            msg += f"• Best Hour: {best_hour}:00 UTC\n"
+            msg += f"• Worst Hour: {worst_hour}:00 UTC\n"
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
 
     async def cmd_report(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
         if not self._bot_ref:
@@ -1134,6 +1314,14 @@ Tap the button below to open:
                     BotCommand("trades", "View active open trades"),
                     BotCommand("candidates", "View top trading candidates"),
                     BotCommand("performance", "View trading performance stats"),
+                    BotCommand("kpi", "View all 20+ advanced KPIs"),
+                    BotCommand("regime", "View current market regime"),
+                    BotCommand("ml", "View ML learning insights"),
+                    BotCommand("fear", "View Fear & Greed Index"),
+                    BotCommand("scan", "Force a market scan"),
+                    BotCommand("best", "View best performing coins"),
+                    BotCommand("worst", "View worst performing coins"),
+                    BotCommand("streak", "View win/loss streaks"),
                     BotCommand("settings", "View and manage bot settings"),
                     BotCommand("report", "Generate performance report"),
                     BotCommand("help", "Show available commands")

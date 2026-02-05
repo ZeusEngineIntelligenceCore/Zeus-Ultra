@@ -72,6 +72,8 @@ class ZeusBot:
         self.smart_exec = SmartExecutionEngine()
         self.microstructure = MicrostructureAnalyzer()
         self.kpi_tracker = KPITracker()
+        from ..analytics.secret_weapons import SecretWeapons
+        self.secret_weapons = SecretWeapons()
         self.mode = mode
         self.running = False
         self._pairs_cache: List[str] = []
