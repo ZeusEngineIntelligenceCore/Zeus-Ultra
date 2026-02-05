@@ -29,6 +29,8 @@ from ..data.alternative_data import AlternativeDataAggregator
 from ..execution.smart_execution import SmartExecutionEngine
 from ..indicators.microstructure import MicrostructureAnalyzer
 from ..analytics.kpi_tracker import KPITracker, TradeMetrics
+from ..execution.predictive_orders import PredictiveLimitOrderEngine
+from ..indicators.mtf_fusion import MultiTimeframeFusion, TimeframeIndicators
 from .state import StateManager, TradeRecord
 
 logging.basicConfig(
@@ -78,6 +80,8 @@ class ZeusBot:
         self.secret_weapons = SecretWeapons()
         self.exit_manager = AdvancedExitManager()
         self.breakout_analyzer = BreakoutAnalyzer()
+        self.predictive_orders = PredictiveLimitOrderEngine()
+        self.mtf_fusion = MultiTimeframeFusion()
         self.mode = mode
         self.running = False
         self._pairs_cache: List[str] = []
@@ -632,6 +636,36 @@ class ZeusBot:
 
     async def execute_trade(self, signal: TradingSignal) -> Optional[str]:
         logger.info(f"[TRADE GATE] Attempting trade: {signal.symbol} conf={signal.confidence:.1f} score={signal.prebreakout_score:.1f}")
+        
+        mtf_boost = 0.0
+        mtf_alignment = 0.0
+        try:
+            if signal.extra_data and signal.extra_data.get("prices"):
+                prices = signal.extra_data.get("prices", [])
+                volumes = signal.extra_data.get("volumes", [])
+                if len(prices) >= 50:
+                    from .mtf_integration import build_mtf_indicators
+                    tf_indicators = await build_mtf_indicators(
+                        self.exchange, signal.symbol, prices, volumes, self.math_kernel if hasattr(self, 'math_kernel') else None
+                    )
+                    if tf_indicators and len(tf_indicators) >= 3:
+                        fused = self.mtf_fusion.fuse_signals(signal.symbol, tf_indicators)
+                        mtf_alignment = fused.consensus.alignment_score
+                        if fused.direction == "LONG" and signal.side.value == "buy":
+                            if fused.confidence > 0.7:
+                                mtf_boost = 5.0
+                                logger.info(f"[MTF BOOST] {signal.symbol}: +5 conf (alignment={mtf_alignment:.0%}, grade={fused.overall_grade})")
+                            elif fused.confidence > 0.5:
+                                mtf_boost = 2.5
+                        elif fused.direction == "SHORT" and signal.side.value == "buy":
+                            mtf_boost = -10.0
+                            logger.warning(f"[MTF CONFLICT] {signal.symbol}: -10 conf (MTF says SHORT)")
+        except Exception as e:
+            logger.debug(f"MTF integration skipped: {e}")
+        
+        adjusted_confidence = signal.confidence + mtf_boost
+        logger.info(f"[TRADE GATE] {signal.symbol} adjusted conf={adjusted_confidence:.1f} (MTF boost={mtf_boost:+.1f})")
+        
         if not self.state.can_open_new_trade():
             current_count = len(self.state.state.active_trades)
             max_positions = self.state.state.config.max_open_positions
@@ -709,34 +743,56 @@ class ZeusBot:
             try:
                 order_book = await self.exchange.analyze_order_book(signal.symbol)
                 volatility_pct = signal.atr / signal.entry_price if signal.atr > 0 else 0.02
-                from ..execution.smart_execution import MarketConditions
-                market_conditions = MarketConditions(
-                    spread=order_book.get("spread", 0.01) if order_book else 0.01,
-                    spread_pct=order_book.get("spread_pct", 0.5) if order_book else 0.5,
-                    bid_depth=order_book.get("total_bid_volume", 1000) if order_book else 1000,
-                    ask_depth=order_book.get("total_ask_volume", 1000) if order_book else 1000,
-                    volatility=volatility_pct,
-                    volume_24h=order_book.get("volume_24h", 10000) if order_book else 10000,
-                    recent_volume=order_book.get("recent_volume", 1000) if order_book else 1000,
-                    liquidity_score=0.5
-                )
-                exec_strategy = self.smart_exec.select_strategy(
-                    order_size=size,
-                    order_value=order_value,
-                    market_conditions=market_conditions,
-                    urgency=signal.confidence / 100.0
-                )
-                logger.info(f"Smart execution strategy: {exec_strategy}")
+                
                 optimal_price = signal.entry_price
-                if order_book and signal.side == OrderSide.BUY:
-                    best_bid = order_book.get("best_bid", signal.entry_price)
-                    spread_pct = order_book.get("spread_pct", 0)
-                    if spread_pct > 0.5:
-                        optimal_price = best_bid * 0.9995
+                prediction = None
+                
+                if signal.side == OrderSide.BUY:
+                    prices = signal.extra_data.get("prices", []) if signal.extra_data else []
+                    volumes = signal.extra_data.get("volumes", []) if signal.extra_data else []
+                    
+                    bids = []
+                    asks = []
+                    if order_book:
+                        bids = order_book.get("bids", [])
+                        asks = order_book.get("asks", [])
+                    
+                    if len(prices) >= 50:
+                        prediction = self.predictive_orders.predict_optimal_entry(
+                            symbol=signal.symbol,
+                            current_price=signal.entry_price,
+                            prices=prices,
+                            volumes=volumes,
+                            rsi=signal.rsi,
+                            macd=signal.macd,
+                            macd_signal=signal.macd_signal,
+                            atr=signal.atr,
+                            bids=bids,
+                            asks=asks
+                        )
+                        
+                        limit_params = self.predictive_orders.get_limit_order_params(
+                            prediction,
+                            urgency="high" if signal.confidence > 85 else "normal"
+                        )
+                        
+                        optimal_price = limit_params["price"]
+                        savings_pct = limit_params["predicted_savings_pct"]
+                        
+                        logger.info(f"[PREDICTIVE ORDER] {signal.symbol}: optimal=${optimal_price:.8f} "
+                                   f"(current=${signal.entry_price:.8f}, savings={savings_pct:.2f}%, "
+                                   f"confidence={prediction.confidence:.1%}, rec={prediction.recommendation})")
                     else:
-                        optimal_price = best_bid * 0.9998
-                    optimal_price = max(optimal_price, signal.entry_price * 0.995)
-                    logger.info(f"Optimized buy price: ${optimal_price:.8f} (bid: ${best_bid:.8f})")
+                        if order_book:
+                            best_bid = order_book.get("best_bid", signal.entry_price)
+                            spread_pct = order_book.get("spread_pct", 0)
+                            if spread_pct > 0.5:
+                                optimal_price = best_bid * 0.9995
+                            else:
+                                optimal_price = best_bid * 0.9998
+                            optimal_price = max(optimal_price, signal.entry_price * 0.995)
+                        logger.info(f"Optimized buy price: ${optimal_price:.8f}")
+                        
                 elif order_book and signal.side == OrderSide.SELL:
                     best_ask = order_book.get("best_ask", signal.entry_price)
                     optimal_price = best_ask * 1.0002

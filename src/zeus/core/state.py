@@ -52,6 +52,7 @@ class TradeRecord:
     mtf_alignment: float = 0.0
     sell_order_attempts: int = 0
     synced: bool = False
+    entry_features: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

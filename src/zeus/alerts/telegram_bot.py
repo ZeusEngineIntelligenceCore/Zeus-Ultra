@@ -1140,6 +1140,126 @@ Use the buttons below or type commands to interact with me.
         except Exception as e:
             await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
 
+    async def cmd_mtf(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
+        if not self._bot_ref:
+            await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
+            return
+        try:
+            args = context.args if context.args else []
+            symbol = args[0].upper() + "USD" if args else "BTCUSD"
+            
+            await update.message.reply_text(f"🔬 Running Multi-Timeframe Fusion for <b>{symbol}</b>...", parse_mode="HTML")
+            
+            mtf_fusion = self._bot_ref.mtf_fusion
+            exchange = self._bot_ref.exchange
+            
+            from ..indicators.mtf_fusion import TimeframeIndicators
+            timeframe_data = {}
+            
+            for tf in ["5m", "15m", "1h", "4h", "1d"]:
+                ohlcv = await exchange.fetch_ohlcv(symbol, tf, 200)
+                if len(ohlcv) < 50:
+                    continue
+                    
+                high = [c.high for c in ohlcv]
+                low = [c.low for c in ohlcv]
+                close = [c.close for c in ohlcv]
+                volume = [c.volume for c in ohlcv]
+                
+                from ..indicators.math_kernel import MathKernel
+                mk = MathKernel()
+                rsi = mk.rsi(close, 14)[-1] if len(close) >= 14 else 50
+                macd_line, signal_line, histogram = mk.macd(close)
+                ema_9 = mk.ema(close, 9)[-1]
+                ema_21 = mk.ema(close, 21)[-1]
+                ema_50 = mk.ema(close, 50)[-1] if len(close) >= 50 else ema_21
+                sma_200 = mk.sma(close, 200)[-1] if len(close) >= 200 else ema_50
+                bb_upper, bb_middle, bb_lower = mk.bollinger_bands(close)
+                atr = mk.atr(high, low, close, 14)[-1]
+                adx, plus_di, minus_di = mk.adx(high, low, close)
+                stoch_k, stoch_d = mk.stochastic(high, low, close)
+                cci = mk.cci(high, low, close)[-1]
+                mfi = mk.mfi(high, low, close, volume)[-1] if len(volume) >= 14 else 50
+                obv = mk.obv(close, volume)
+                obv_trend = (obv[-1] - obv[-10]) / abs(obv[-10]) if len(obv) >= 10 and obv[-10] != 0 else 0
+                vol_sma = mk.sma(volume, 20)[-1] if len(volume) >= 20 else volume[-1]
+                
+                timeframe_data[tf] = TimeframeIndicators(
+                    timeframe=tf,
+                    rsi=rsi,
+                    macd=macd_line[-1],
+                    macd_signal=signal_line[-1],
+                    macd_histogram=histogram[-1],
+                    ema_9=ema_9,
+                    ema_21=ema_21,
+                    ema_50=ema_50,
+                    sma_200=sma_200,
+                    bb_upper=bb_upper[-1],
+                    bb_middle=bb_middle[-1],
+                    bb_lower=bb_lower[-1],
+                    bb_width=bb_upper[-1] - bb_lower[-1],
+                    atr=atr,
+                    adx=adx[-1],
+                    plus_di=plus_di[-1],
+                    minus_di=minus_di[-1],
+                    stoch_k=stoch_k[-1],
+                    stoch_d=stoch_d[-1],
+                    cci=cci,
+                    mfi=mfi,
+                    obv_trend=obv_trend,
+                    vwap=close[-1],
+                    current_price=close[-1],
+                    volume=volume[-1],
+                    volume_sma=vol_sma
+                )
+            
+            if len(timeframe_data) < 3:
+                await update.message.reply_text(f"⚠️ Not enough timeframe data for {symbol}", reply_markup=self.get_main_keyboard())
+                return
+            
+            fused = mtf_fusion.fuse_signals(symbol, timeframe_data)
+            
+            dir_emoji = "🟢" if fused.direction == "LONG" else "🔴" if fused.direction == "SHORT" else "⚪"
+            
+            msg = f"🔬 <b>MTF FUSION: {symbol}</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            msg += f"<b>Direction:</b> {dir_emoji} {fused.direction}\n"
+            msg += f"<b>Strength:</b> {fused.strength:.1%}\n"
+            msg += f"<b>Confidence:</b> {fused.confidence:.1%}\n"
+            msg += f"<b>Grade:</b> {fused.overall_grade}\n"
+            msg += f"<b>Action:</b> {fused.recommended_action}\n\n"
+            
+            msg += f"<b>Scores:</b>\n"
+            msg += f"• Entry: {fused.entry_score:.1%}\n"
+            msg += f"• Timing: {fused.timing_score:.1%}\n"
+            msg += f"• Risk: {fused.risk_score:.1%}\n\n"
+            
+            msg += f"<b>Consensus:</b>\n"
+            msg += f"• Bullish TFs: {fused.consensus.bullish_count}\n"
+            msg += f"• Bearish TFs: {fused.consensus.bearish_count}\n"
+            msg += f"• Alignment: {fused.consensus.alignment_score:.0%}\n\n"
+            
+            msg += f"<b>Timeframe Signals:</b>\n"
+            for tf, score in fused.timeframe_scores.items():
+                tf_emoji = "🟢" if score.signal_direction == "BULLISH" else "🔴" if score.signal_direction == "BEARISH" else "⚪"
+                msg += f"• {tf}: {tf_emoji} {score.overall_score:+.2f}\n"
+            
+            if fused.primary_drivers:
+                msg += f"\n<b>Key Drivers:</b>\n"
+                for driver in fused.primary_drivers[:5]:
+                    msg += f"• {driver}\n"
+            
+            if fused.warnings:
+                msg += f"\n<b>⚠️ Warnings:</b>\n"
+                for warn in fused.warnings[:3]:
+                    msg += f"• {warn}\n"
+            
+            msg += f"\n<b>Competition Score:</b> {fused.beats_competition_score:.0f}/100"
+            
+            await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
+        except Exception as e:
+            logger.error(f"MTF command error: {e}")
+            await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())
+
     async def cmd_streak(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
         if not self._bot_ref:
             await update.message.reply_text("⚠️ Bot not available", reply_markup=self.get_main_keyboard())
@@ -1337,10 +1457,43 @@ Tap the button below to open:
     async def start_command_listener(self) -> None:
         if not TELEGRAM_AVAILABLE or self._commands_registered:
             return
-        logger.info("Telegram operating in send-only mode (alerts enabled, commands via web dashboard)")
-        self._commands_registered = True
-        self._polling_active = False
-        TelegramAlerts._polling_instance = self
+        try:
+            self.app = Application.builder().token(self.token).build()
+            self.app.add_handler(CommandHandler("start", self.cmd_start))
+            self.app.add_handler(CommandHandler("status", self.cmd_status))
+            self.app.add_handler(CommandHandler("portfolio", self.cmd_portfolio))
+            self.app.add_handler(CommandHandler("trades", self.cmd_trades))
+            self.app.add_handler(CommandHandler("candidates", self.cmd_candidates))
+            self.app.add_handler(CommandHandler("performance", self.cmd_performance))
+            self.app.add_handler(CommandHandler("settings", self.cmd_settings))
+            self.app.add_handler(CommandHandler("help", self.cmd_help))
+            self.app.add_handler(CommandHandler("kpi", self.cmd_kpi))
+            self.app.add_handler(CommandHandler("regime", self.cmd_regime))
+            self.app.add_handler(CommandHandler("ml", self.cmd_ml))
+            self.app.add_handler(CommandHandler("fear", self.cmd_fear))
+            self.app.add_handler(CommandHandler("scan", self.cmd_scan))
+            self.app.add_handler(CommandHandler("best", self.cmd_best))
+            self.app.add_handler(CommandHandler("worst", self.cmd_worst))
+            self.app.add_handler(CommandHandler("whale", self.cmd_whale))
+            self.app.add_handler(CommandHandler("streak", self.cmd_streak))
+            self.app.add_handler(CommandHandler("mtf", self.cmd_mtf))
+            self.app.add_handler(CommandHandler("report", self.cmd_report))
+            self.app.add_handler(CommandHandler("dashboard", self.cmd_dashboard))
+            self.app.add_handler(CommandHandler("analyze", self.cmd_analyze))
+            self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
+            await self.app.initialize()
+            await self._register_bot_commands()
+            await self.app.start()
+            if self.app.updater:
+                await self.app.updater.start_polling(drop_pending_updates=True)
+            self._commands_registered = True
+            self._polling_active = True
+            TelegramAlerts._polling_instance = self
+            logger.info("Telegram command listener started with polling - ALL COMMANDS ACTIVE")
+        except Exception as e:
+            logger.error(f"Failed to start command listener: {e}")
+            self._commands_registered = False
+            self._polling_active = False
 
     async def _register_bot_commands(self) -> None:
         try:
@@ -1364,6 +1517,7 @@ Tap the button below to open:
                     BotCommand("worst", "View worst performing coins"),
                     BotCommand("streak", "View win/loss streaks"),
                     BotCommand("whale", "Whale detection - /whale BTC"),
+                    BotCommand("mtf", "Multi-timeframe fusion - /mtf BTC"),
                     BotCommand("settings", "View and manage bot settings"),
                     BotCommand("report", "Generate performance report"),
                     BotCommand("help", "Show available commands")

@@ -55,6 +55,10 @@ class TradingSignal:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     prebreakout_score: float = 0.0
     timeframe_alignment: float = 0.0
+    rsi: float = 50.0
+    macd: float = 0.0
+    macd_signal: float = 0.0
+    extra_data: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -162,6 +166,10 @@ class SignalGenerator:
         risk_reward = reward / risk if risk > 0 else 0
         if risk_reward < self.config.min_rr_ratio:
             return None
+        macd_data = self.math.macd(close)
+        macd_line = macd_data[0][-1] if len(macd_data[0]) > 0 else 0
+        macd_sig = macd_data[1][-1] if len(macd_data[1]) > 0 else 0
+        
         return TradingSignal(
             symbol=symbol,
             signal_type=signal_type,
@@ -184,7 +192,14 @@ class SignalGenerator:
             },
             strategy_mode=mode,
             prebreakout_score=prebreakout.get("prebreakout_score", 0),
-            timeframe_alignment=prebreakout.get("features", {}).get("microtrend", 0)
+            timeframe_alignment=prebreakout.get("features", {}).get("microtrend", 0),
+            rsi=round(indicators["rsi"], 2),
+            macd=macd_line,
+            macd_signal=macd_sig,
+            extra_data={
+                "prices": close[-100:] if len(close) >= 100 else close,
+                "volumes": volume[-100:] if len(volume) >= 100 else volume
+            }
         )
 
     def _analyze_trend(self, close: List[float]) -> Dict[str, Any]:

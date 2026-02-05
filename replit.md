@@ -35,6 +35,24 @@ Zeus is built around a modular architecture with a core trading engine supported
 - **Secret Weapons Module** (NEW): Includes Smart Money Flow detection (OBV divergence, CMF, Accumulation/Distribution), Whale Activity detection (volume anomalies, large order ratio), Altcoin Season Index, and Portfolio Correlation Matrix for diversification analysis.
 - **Advanced Exit Strategies** (NEW): Quick win detection (1.5% in 15 mins), partial profit taking at multiple levels, dynamic trailing stops, momentum reversal exits, and time-based exit optimization.
 - **Breakout & Fakeout Analyzer** (NEW): Enhanced breakout quality scoring, multi-factor fakeout detection, volume spike/fallout monitoring, and whale activity signals for better entry/exit timing.
+- **Predictive Limit Order Engine** (NEW): Replaces market buys with intelligent limit orders by:
+  - Identifying support levels from price history
+  - Detecting momentum exhaustion for reversal prediction
+  - Analyzing order book for bid walls and smart money accumulation
+  - Predicting optimal limit entry prices to get better fills
+  - Tracking prediction accuracy for continuous improvement
+- **Multi-Timeframe Fusion System** (NEW): Ultra-accurate trading signals by combining ALL indicators across 5 timeframes (5m/15m/1h/4h/1d):
+  - Scores each timeframe on trend, momentum, volatility, and volume
+  - Calculates consensus with alignment scoring (detects when all timeframes agree)
+  - Detects divergences between short-term and long-term signals
+  - Produces FusedSignal with direction, strength, confidence, and letter grade (A+ to D)
+  - Boosts trade confidence when MTF alignment is high, reduces when conflicting
+  - "Beats Competition Score" metric for signal quality comparison
+- **21 Telegram Commands** (ENHANCED): Full command processing with polling:
+  - /status, /portfolio, /trades, /candidates, /performance
+  - /kpi, /regime, /ml, /fear, /scan
+  - /best, /worst, /streak, /whale, /mtf
+  - /analyze, /dashboard, /report, /settings, /help
 - **KPI Analytics System**: Tracks 20+ critical performance metrics including Sharpe ratio, Sortino ratio, max drawdown, win rate, profit factor, expectancy, Calmar ratio, trade frequency, average hold times, symbol-level performance, Recovery Factor, Ulcer Index, Tail Ratio, CAGR, K-Ratio, Consecutive Streaks, Risk of Ruin, Common Sense Ratio, Gain-to-Pain Ratio, and Time-Weighted Return. Records daily returns and hourly performance analysis.
 - **Trading Configuration**: Supports a maximum of 100 open positions, a minimum profit target of 3-4%, continuous holdings monitoring, full market scans every 300 seconds, and position scans every 60 seconds.
 - **Authentication**: Uses Replit Auth for user authentication, supporting various social logins and email/password, with protected routes.
