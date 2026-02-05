@@ -776,8 +776,7 @@ def run_server():
 
 
 if __name__ == "__main__":
-    bot_thread = threading.Thread(target=run_trading_bot, daemon=True)
-    bot_thread.start()
-    print("[BOT] Trading bot started in background thread")
-
+    print("[BOT] Bot ready - toggle ON from dashboard to start trading")
+    bot_status["running"] = False
+    
     run_server()
