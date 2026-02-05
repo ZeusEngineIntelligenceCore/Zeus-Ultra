@@ -7,6 +7,13 @@ import logging
 
 logging.basicConfig(level=logging.DEBUG)
 
+logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext.Updater").setLevel(logging.CRITICAL)
+logging.getLogger("telegram.ext._utils.networkloop").setLevel(logging.CRITICAL)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 class Base(DeclarativeBase):
     pass
 

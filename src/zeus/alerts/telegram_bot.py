@@ -1485,7 +1485,21 @@ Tap the button below to open:
             await self._register_bot_commands()
             await self.app.start()
             if self.app.updater:
-                await self.app.updater.start_polling(drop_pending_updates=True)
+                import asyncio
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        await self.app.updater.start_polling(
+                            drop_pending_updates=True,
+                            allowed_updates=["message", "callback_query"]
+                        )
+                        break
+                    except Exception as poll_error:
+                        if "Conflict" in str(poll_error) and attempt < max_retries - 1:
+                            logger.warning(f"Polling conflict detected (attempt {attempt + 1}), waiting before retry...")
+                            await asyncio.sleep(2 ** attempt)
+                        else:
+                            raise poll_error
             self._commands_registered = True
             self._polling_active = True
             TelegramAlerts._polling_instance = self
