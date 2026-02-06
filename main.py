@@ -842,7 +842,7 @@ def run_server():
         'timeout': 120,
         'accesslog': '-',
         'errorlog': '-',
-        'loglevel': 'info'
+        'loglevel': 'warning'
     }
 
     GunicornApp(app, options).run()
