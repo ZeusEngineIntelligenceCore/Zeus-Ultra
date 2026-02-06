@@ -167,8 +167,8 @@ class SignalGenerator:
         if risk_reward < self.config.min_rr_ratio:
             return None
         macd_data = self.math.macd(close)
-        macd_line = macd_data[0][-1] if len(macd_data[0]) > 0 else 0
-        macd_sig = macd_data[1][-1] if len(macd_data[1]) > 0 else 0
+        macd_line = macd_data[0] if isinstance(macd_data[0], (int, float)) else (macd_data[0][-1] if len(macd_data[0]) > 0 else 0)
+        macd_sig = macd_data[1] if isinstance(macd_data[1], (int, float)) else (macd_data[1][-1] if len(macd_data[1]) > 0 else 0)
         
         return TradingSignal(
             symbol=symbol,

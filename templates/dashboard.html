@@ -568,6 +568,18 @@
                     document.getElementById('fearGreedValue').style.color = fgColor;
                 }
 
+                if (data.bot_config) {
+                    const bc = data.bot_config;
+                    document.getElementById('botConfig').innerHTML =
+                        `Strategy: <strong>${bc.strategy}</strong> | ` +
+                        `Min Confidence: <strong>${bc.min_confidence}%</strong> | ` +
+                        `Min Profit: <strong>${bc.min_profit}%</strong><br>` +
+                        `Max Positions: <strong>${bc.max_positions}</strong> | ` +
+                        `Scan: <strong>${bc.scan_interval}s</strong>`;
+                } else {
+                    document.getElementById('botConfig').textContent = 'Not available';
+                }
+
                 if (data.error) {
                     const errEl = document.getElementById('errorDisplay');
                     errEl.style.display = 'inline';
@@ -674,6 +686,10 @@
                 
                 if (!data.candidates || data.candidates.length === 0) {
                     panel.innerHTML = '<div class="empty-state">No candidates - start the bot to scan</div>';
+                    document.getElementById('bullishPct').textContent = '0';
+                    document.getElementById('bearishPct').textContent = '0';
+                    document.getElementById('bullishBar').style.width = '50%';
+                    document.getElementById('bearishBar').style.width = '50%';
                     return;
                 }
                 

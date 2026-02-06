@@ -194,6 +194,24 @@ class ZeusBot:
             await self._sync_holdings_with_positions(holdings)
             self.risk_manager.update_portfolio(equity, [])
             self._record_daily_return_if_new_day(equity)
+            try:
+                price_cache = getattr(self.exchange, '_ticker_cache', {})
+                holdings_prices = {}
+                for symbol in holdings:
+                    if symbol in ("USD", "ZUSD", "USDT", "USDC", "EUR", "ZEUR"):
+                        continue
+                    for suffix in ["USD", "USDT"]:
+                        cache_key = f"{symbol}{suffix}"
+                        if cache_key in price_cache:
+                            cached = price_cache[cache_key]
+                            p = getattr(cached, 'last', 0) if hasattr(cached, 'last') else cached.get('last', 0) if isinstance(cached, dict) else 0
+                            if p > 0:
+                                holdings_prices[symbol] = p
+                                break
+                if holdings_prices:
+                    self.state.state._holdings_prices = holdings_prices
+            except Exception:
+                pass
             logger.info(f"Balance refreshed: ${equity:.2f} | Holdings: {len(holdings)} tokens")
         except Exception as e:
             logger.error(f"Failed to refresh balance: {e}")
@@ -524,6 +542,10 @@ class ZeusBot:
                 fg_data = await self.alt_data.update_fear_greed()
                 if fg_data:
                     logger.info(f"Fear & Greed: {fg_data.value} ({fg_data.classification})")
+                    self.state.state._fear_greed = {
+                        "value": fg_data.value,
+                        "classification": fg_data.classification
+                    }
                 self._last_alt_data_update = time.time()
             except Exception as e:
                 logger.debug(f"Alt data update error: {e}")

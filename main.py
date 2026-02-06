@@ -88,8 +88,8 @@ def status():
                     k for k, v in holdings.items()
                     if k not in ("USD", "ZUSD", "USDT", "USDC") and v > 0.0001
                 ])
-                status_copy["active_trades"] = len(
-                    state.get("active_trades", {}))
+                at = state.get("active_trades", [])
+                status_copy["active_trades"] = len(at) if isinstance(at, (list, dict)) else 0
                 status_copy["candidates_count"] = len(
                     state.get("candidates", []))
                 status_copy["total_profit"] = stats.get("total_pnl", 0)
@@ -98,6 +98,14 @@ def status():
                 status_copy["losses"] = stats.get("losses", 0)
                 status_copy["mode"] = stats.get(
                     "mode", status_copy.get("mode", "UNKNOWN"))
+                cfg = state.get("config", {})
+                status_copy["bot_config"] = {
+                    "strategy": cfg.get("strategy_mode", "day_trade"),
+                    "min_confidence": cfg.get("min_confidence", 70),
+                    "min_profit": cfg.get("min_profit_target", 3.0),
+                    "max_positions": cfg.get("max_open_positions", 100),
+                    "scan_interval": cfg.get("scan_interval", 300)
+                }
                 if hasattr(bot_instance, 'alt_data') and bot_instance.alt_data:
                     fg = bot_instance.alt_data.get_fear_greed()
                     if fg:
@@ -122,8 +130,8 @@ def status():
                         if k not in ("USD", "ZUSD", "USDT",
                                      "USDC") and v > 0.0001
                     ])
-                    status_copy["active_trades"] = len(
-                        data.get("active_trades", {}))
+                    at = data.get("active_trades", {})
+                    status_copy["active_trades"] = len(at) if isinstance(at, (list, dict)) else 0
                     status_copy["total_profit"] = round(
                         data.get("total_pnl", 0), 2)
                     status_copy["wins"] = data.get("wins", 0)
@@ -131,6 +139,16 @@ def status():
                     config = data.get("config", {})
                     status_copy["mode"] = config.get(
                         "mode", status_copy.get("mode", "UNKNOWN"))
+                    status_copy["bot_config"] = {
+                        "strategy": config.get("strategy_mode", "day_trade"),
+                        "min_confidence": config.get("min_confidence", 70),
+                        "min_profit": config.get("min_profit_target", 3.0),
+                        "max_positions": config.get("max_open_positions", 100),
+                        "scan_interval": config.get("scan_interval", 300)
+                    }
+                    fg_data = data.get("fear_greed")
+                    if fg_data:
+                        status_copy["fear_greed"] = fg_data
             except Exception:
                 pass
 
@@ -148,42 +166,44 @@ def status():
 @require_login
 def api_trades():
     trades = []
+    def _parse_trade(trade, trade_id=None):
+        return {
+            "id": trade_id or trade.get("trade_id", trade.get("symbol", "unknown")),
+            "symbol": trade.get("symbol"),
+            "side": trade.get("side"),
+            "entry_price": trade.get("entry_price"),
+            "size": trade.get("size"),
+            "stop_loss": trade.get("stop_loss"),
+            "take_profit": trade.get("take_profit"),
+            "entry_time": trade.get("entry_time"),
+            "status": trade.get("status"),
+            "is_manual": trade.get("is_manual", False),
+            "protected": trade.get("protected", False)
+        }
     try:
         if bot_instance:
             state = bot_instance.get_status()
-            for trade_id, trade in state.get("active_trades", {}).items():
-                trades.append({
-                    "id": trade_id,
-                    "symbol": trade.get("symbol"),
-                    "side": trade.get("side"),
-                    "entry_price": trade.get("entry_price"),
-                    "size": trade.get("size"),
-                    "stop_loss": trade.get("stop_loss"),
-                    "take_profit": trade.get("take_profit"),
-                    "entry_time": trade.get("entry_time"),
-                    "status": trade.get("status"),
-                    "is_manual": trade.get("is_manual", False),
-                    "protected": trade.get("protected", False)
-                })
+            at = state.get("active_trades", [])
+            if isinstance(at, list):
+                for trade in at:
+                    if isinstance(trade, dict):
+                        trades.append(_parse_trade(trade))
+            elif isinstance(at, dict):
+                for trade_id, trade in at.items():
+                    trades.append(_parse_trade(trade, trade_id))
         if not trades:
             state_file = Path("data/bot_state.json")
             if state_file.exists():
                 with open(state_file, 'r') as f:
                     data = json.load(f)
-                for trade_id, trade in data.get("active_trades", {}).items():
-                    trades.append({
-                        "id": trade_id,
-                        "symbol": trade.get("symbol"),
-                        "side": trade.get("side"),
-                        "entry_price": trade.get("entry_price"),
-                        "size": trade.get("size"),
-                        "stop_loss": trade.get("stop_loss"),
-                        "take_profit": trade.get("take_profit"),
-                        "entry_time": trade.get("entry_time"),
-                        "status": trade.get("status"),
-                        "is_manual": trade.get("is_manual", False),
-                        "protected": trade.get("protected", False)
-                    })
+                at = data.get("active_trades", {})
+                if isinstance(at, list):
+                    for trade in at:
+                        if isinstance(trade, dict):
+                            trades.append(_parse_trade(trade))
+                elif isinstance(at, dict):
+                    for trade_id, trade in at.items():
+                        trades.append(_parse_trade(trade, trade_id))
         return jsonify({"trades": trades, "count": len(trades)}), 200
     except Exception as e:
         return jsonify({"trades": [], "error": str(e)}), 200
@@ -195,17 +215,26 @@ def api_holdings():
     holdings_data = {}
     active_trades = {}
     try:
+        state_file = Path("data/bot_state.json")
+        file_data = {}
+        if state_file.exists():
+            try:
+                with open(state_file, 'r') as f:
+                    file_data = json.load(f)
+            except Exception:
+                pass
         if bot_instance:
             state = bot_instance.get_status()
             holdings_data = state.get("holdings", {})
-            active_trades = state.get("active_trades", {})
+            at = state.get("active_trades", [])
+            if isinstance(at, list):
+                active_trades = {t.get("symbol", f"t{i}"): t for i, t in enumerate(at) if isinstance(t, dict)}
+            elif isinstance(at, dict):
+                active_trades = at
         if not holdings_data:
-            state_file = Path("data/bot_state.json")
-            if state_file.exists():
-                with open(state_file, 'r') as f:
-                    data = json.load(f)
-                holdings_data = data.get("holdings", {})
-                active_trades = data.get("active_trades", {})
+            holdings_data = file_data.get("holdings", {})
+            if not active_trades:
+                active_trades = file_data.get("active_trades", {})
         price_cache = {}
         if bot_instance and hasattr(bot_instance,
                                     'exchange') and bot_instance.exchange:
@@ -238,23 +267,32 @@ def api_holdings():
                     if price > 0:
                         break
 
+            entry_price = 0.0
             if price == 0:
                 for trade_id, trade in active_trades.items():
                     trade_symbol = trade.get("symbol", "")
                     if trade_symbol.startswith(
                             symbol) or trade_symbol.startswith(clean_symbol):
-                        price = trade.get("entry_price", 0)
+                        entry_price = trade.get("entry_price", 0)
+                        price = entry_price
                         if price > 0:
                             break
 
+            if price == 0 and file_data:
+                saved_holdings_prices = file_data.get("holdings_prices", {})
+                price = saved_holdings_prices.get(symbol, 0)
+
             value_usd = amount * price if price > 0 else 0
+            pnl_pct = 0.0
+            if entry_price > 0 and price > 0:
+                pnl_pct = round((price - entry_price) / entry_price * 100, 2)
 
             holdings.append({
                 "symbol": symbol,
                 "amount": amount,
                 "price": price,
                 "value_usd": value_usd,
-                "pnl_pct": 0
+                "pnl_pct": pnl_pct
             })
 
         holdings.sort(key=lambda x: x.get("value_usd", 0), reverse=True)

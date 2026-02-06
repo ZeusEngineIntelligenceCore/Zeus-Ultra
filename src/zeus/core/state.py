@@ -130,7 +130,10 @@ class StateManager:
                     "active_trades": {k: asdict(v) for k, v in self.state.active_trades.items()},
                     "trade_history": [asdict(t) for t in self.state.trade_history[-100:]],
                     "holdings": self.state.holdings,
-                    "last_updated": datetime.now(LA_TZ).isoformat()
+                    "last_updated": datetime.now(LA_TZ).isoformat(),
+                    "fear_greed": getattr(self.state, '_fear_greed', None),
+                    "candidates": self.state.candidates[:20] if self.state.candidates else [],
+                    "holdings_prices": getattr(self.state, '_holdings_prices', {})
                 }
                 with open(self.state_file, 'w') as f:
                     json.dump(data, f, indent=2)
