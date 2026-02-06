@@ -469,18 +469,44 @@ class ZeusBot:
             bullish_count = sum(1 for tf, d in mtf_data.items() if d.get("stage") in ["PRE_BREAKOUT", "BREAKOUT"])
             if bullish_count >= 2 or combined_score >= 55:
                 order_book = await self.exchange.analyze_order_book(pair)
+                stage = primary_tf.get("stage", "UNKNOWN")
+                reasons = [f"MTF aligned ({bullish_count}/5 bullish)"] + primary_tf.get("reasons", [])
+                try:
+                    primary_key = "1h" if "1h" in mtf_data else list(mtf_data.keys())[0]
+                    ohlcv_check = await self.exchange.fetch_ohlcv(pair, primary_key, 50)
+                    if len(ohlcv_check) >= 30:
+                        h = [c.high for c in ohlcv_check]
+                        l = [c.low for c in ohlcv_check]
+                        cl = [c.close for c in ohlcv_check]
+                        vol = [c.volume for c in ohlcv_check]
+                        breakout_signal = self.breakout_analyzer.analyze_breakout_quality(h, l, cl, vol)
+                        if breakout_signal.is_fakeout or breakout_signal.fakeout_probability >= 0.6:
+                            combined_score *= 0.5
+                            stage = "FAKEOUT_WARNING"
+                            reasons.append(f"Fakeout detected (prob={breakout_signal.fakeout_probability:.0%})")
+                        elif breakout_signal.resistance_break and breakout_signal.score < 55:
+                            combined_score *= 0.7
+                            reasons.append("Weak breakout quality - likely post-breakout exhaustion")
+                        vol_fallout = self.breakout_analyzer.detect_volume_fallout(vol)
+                        if vol_fallout.detected and vol_fallout.warning_level in ["critical", "warning"]:
+                            combined_score *= 0.75
+                            reasons.append(f"Volume fallout ({vol_fallout.warning_level})")
+                except Exception as e:
+                    logger.debug(f"Breakout analysis skipped for {pair}: {e}")
+                if combined_score < 40:
+                    return None
                 return {
                     "symbol": pair,
                     "price": primary_tf.get("close_price", 0),
                     "prebreakout_score": combined_score,
-                    "stage": primary_tf.get("stage", "UNKNOWN"),
+                    "stage": stage,
                     "buy_anchor": primary_tf.get("buy_anchor", 0),
                     "sell_anchor": primary_tf.get("sell_anchor", 0),
                     "stop_loss": primary_tf.get("stop_loss", 0),
                     "take_profit": primary_tf.get("take_profit", 0),
                     "atr": primary_tf.get("atr", 0),
                     "features": primary_tf.get("features", {}),
-                    "reasons": [f"MTF aligned ({bullish_count}/5 bullish)"] + primary_tf.get("reasons", []),
+                    "reasons": reasons,
                     "spread_pct": order_book.get("spread_pct", 0) if order_book else 0,
                     "imbalance": order_book.get("imbalance", 0) if order_book else 0,
                     "mtf_alignment": bullish_count / len(mtf_data) if mtf_data else 0,

@@ -34,7 +34,8 @@ Zeus is built around a modular architecture with a core trading engine supported
   The system continuously improves through optimization cycles that update indicator importance weights and confidence thresholds.
 - **Secret Weapons Module** (NEW): Includes Smart Money Flow detection (OBV divergence, CMF, Accumulation/Distribution), Whale Activity detection (volume anomalies, large order ratio), Altcoin Season Index, and Portfolio Correlation Matrix for diversification analysis.
 - **Advanced Exit Strategies** (NEW): Quick win detection (1.5% in 15 mins), partial profit taking at multiple levels, dynamic trailing stops, momentum reversal exits, and time-based exit optimization.
-- **Breakout & Fakeout Analyzer** (NEW): Enhanced breakout quality scoring, multi-factor fakeout detection, volume spike/fallout monitoring, and whale activity signals for better entry/exit timing.
+- **Breakout & Fakeout Analyzer** (ENHANCED): Enhanced breakout quality scoring, multi-factor fakeout detection, volume spike/fallout monitoring, whale activity signals, and integrated into the candidate pipeline to filter post-breakout exhaustion and fakeouts.
+- **True Pre-Breakout Detection** (REWRITTEN): Replaced momentum-chasing logic with consolidation/accumulation detection. New indicators: Range Contraction, Higher Lows (Ascending Support), OBV Divergence (Smart Money Accumulation), Volume Accumulation Pattern, Resistance Proximity. Anti-extension filters penalize coins that already moved significantly (RSI overbought, >10% recent move). PRE_BREAKOUT stage now prioritized over BREAKOUT in scoring.
 - **Predictive Limit Order Engine** (NEW): Replaces market buys with intelligent limit orders by:
   - Identifying support levels from price history
   - Detecting momentum exhaustion for reversal prediction

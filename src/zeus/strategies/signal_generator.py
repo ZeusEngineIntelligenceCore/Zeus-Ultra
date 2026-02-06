@@ -595,15 +595,15 @@ class SignalGenerator:
         )
         prebreakout_score = prebreakout.get("prebreakout_score", 0)
         if prebreakout.get("stage") == "PRE_BREAKOUT":
-            base_score += 25
+            base_score += 35
         elif prebreakout.get("stage") == "BREAKOUT":
-            base_score += 40
-        elif prebreakout.get("stage") == "ACCUMULATION":
             base_score += 10
+        elif prebreakout.get("stage") == "ACCUMULATION":
+            base_score += 20
         if prebreakout_score > 80:
-            base_score += (prebreakout_score - 80) * 0.8
+            base_score += (prebreakout_score - 80) * 0.5
         elif prebreakout_score > 70:
-            base_score += (prebreakout_score - 70) * 0.5
+            base_score += (prebreakout_score - 70) * 0.4
         trend_dir = trend.get("direction", "NEUTRAL")
         mom_score = momentum.get("score", 0)
         if trend_dir in ["STRONG_UP", "ULTRA_BULLISH"] and mom_score > 30:
@@ -666,6 +666,19 @@ class SignalGenerator:
                 base_score -= 10
             if spread > 0.5:
                 base_score -= 5
+        rsi = momentum.get("rsi", 50)
+        if rsi > 80 and base_score > 0:
+            base_score *= 0.5
+        elif rsi > 75 and base_score > 0:
+            base_score *= 0.65
+        elif rsi > 70 and base_score > 0:
+            base_score *= 0.8
+        if prebreakout.get("stage") == "BREAKOUT":
+            feats = prebreakout.get("features", {})
+            if feats.get("resistance_proximity", 0.5) < 0.3:
+                base_score *= 0.6
+            if feats.get("range_contraction", 0.5) < 0.3:
+                base_score *= 0.8
         reasons = []
         reasons.extend(momentum.get("signals", []))
         reasons.extend(volatility.get("signals", []))
