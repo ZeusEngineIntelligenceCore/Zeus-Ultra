@@ -247,8 +247,9 @@
         
         .bottom-grid {
             display: grid;
-            grid-template-columns: 2fr 1fr;
+            grid-template-columns: 1fr 1fr;
             gap: 1.5rem;
+            margin-bottom: 1.5rem;
         }
         @media (max-width: 900px) { .bottom-grid { grid-template-columns: 1fr; } }
         
@@ -268,6 +269,30 @@
         .log-info { color: #3fb950; }
         .log-warn { color: #d29922; }
         .log-error { color: #f85149; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .quick-pick-btn { padding: 0.375rem 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 1rem; color: #fff; font-size: 0.75rem; cursor: pointer; transition: all 0.2s; }
+        .quick-pick-btn:hover { background: rgba(66,153,225,0.2); border-color: #4299e1; }
+        .kpi-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 0.375rem; margin-bottom: 0.25rem; }
+        .kpi-name { font-size: 0.75rem; color: #a0aec0; }
+        .kpi-bar-container { display: flex; align-items: center; gap: 0.5rem; }
+        .kpi-bar { width: 60px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+        .kpi-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+        .kpi-bar-fill.high { background: #48bb78; }
+        .kpi-bar-fill.mid { background: #ecc94b; }
+        .kpi-bar-fill.low { background: #f56565; }
+        .kpi-value { font-size: 0.75rem; font-weight: 600; min-width: 35px; text-align: right; }
+
+        .ml-stat { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.85rem; }
+        .ml-stat:last-child { border-bottom: none; }
+        .ml-label { color: #a0aec0; }
+        .ml-value { font-weight: 600; }
+        .ml-symbol-tag { display: inline-block; padding: 0.2rem 0.5rem; background: rgba(72,187,120,0.15); border: 1px solid rgba(72,187,120,0.3); border-radius: 0.25rem; font-size: 0.75rem; margin: 0.15rem; color: #48bb78; }
+        .ml-symbol-tag.avoided { background: rgba(245,101,101,0.15); border-color: rgba(245,101,101,0.3); color: #f56565; }
+        .ml-strategy-tag { display: inline-block; padding: 0.2rem 0.5rem; background: rgba(159,122,234,0.15); border: 1px solid rgba(159,122,234,0.3); border-radius: 0.25rem; font-size: 0.75rem; margin: 0.15rem; color: #9f7aea; }
+        .data-source-badge { font-size: 0.65rem; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-weight: 600; }
+        .data-source-badge.live { background: rgba(72,187,120,0.2); color: #48bb78; }
+        .data-source-badge.file { background: rgba(236,201,75,0.2); color: #ecc94b; }
     </style>
 </head>
 <body>
@@ -277,8 +302,8 @@
             Zeus Trading Dashboard
         </div>
         <div class="user-info">
-            <span class="kpi-badge">30 KPIs Active</span>
-            <span class="time-display" id="currentTime">{{ current_time }}</span>
+            <span class="data-source-badge" id="dataSourceBadge">Loading...</span>
+            <span class="time-display" id="currentTime">Loading...</span>
             {% if user.profile_image_url %}
                 <img src="{{ user.profile_image_url }}" alt="Profile" class="user-avatar">
             {% endif %}
@@ -291,22 +316,24 @@
         <div class="toggle-section">
             <div class="toggle-info">
                 <h2>
-                    <span class="status-dot {{ 'running' if bot_status.running else 'stopped' }}" id="statusDot"></span>
-                    Bot: <span id="botStatusText">{{ 'Running' if bot_status.running else 'Stopped' }}</span>
+                    <span class="status-dot stopped" id="statusDot"></span>
+                    Bot: <span id="botStatusText">Loading...</span>
                 </h2>
-                <p>Mode: <strong id="tradingMode">{{ bot_status.mode }}</strong> | 
-                   Since: <span id="uptimeStart">{{ bot_status.uptime_start or 'N/A' }}</span></p>
+                <p>Mode: <strong id="tradingMode">--</strong> | 
+                   Since: <span id="uptimeStart">--</span> |
+                   <span id="errorDisplay" style="color: #f56565; display: none;"></span>
+                </p>
             </div>
             <div style="display: flex; align-items: center; gap: 1.5rem;">
                 <div style="text-align: right;">
                     <div style="font-size: 0.7rem; color: #a0aec0; text-transform: uppercase;">Fear & Greed</div>
-                    <div id="fearGreedValue" style="font-size: 1.25rem; font-weight: bold; color: #f56565;">--</div>
+                    <div id="fearGreedValue" style="font-size: 1.25rem; font-weight: bold; color: #718096;">--</div>
                     <div class="fear-greed-meter">
-                        <div class="fear-greed-indicator" id="fearGreedIndicator" style="left: 14%;"></div>
+                        <div class="fear-greed-indicator" id="fearGreedIndicator" style="left: 50%;"></div>
                     </div>
                 </div>
                 <label class="toggle-switch">
-                    <input type="checkbox" id="botToggle" {{ 'checked' if bot_status.running else '' }}>
+                    <input type="checkbox" id="botToggle">
                     <span class="slider"></span>
                 </label>
             </div>
@@ -315,7 +342,7 @@
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">Available Balance</div>
-                <div class="stat-value blue" id="balance">${{ "%.2f"|format(bot_status.balance) }}</div>
+                <div class="stat-value blue" id="balance">$--</div>
                 <div class="stat-sub">USD available</div>
             </div>
             <div class="stat-card">
@@ -325,22 +352,22 @@
             </div>
             <div class="stat-card">
                 <div class="stat-label">Bot Trades</div>
-                <div class="stat-value green" id="activeTrades">{{ bot_status.active_trades }}</div>
+                <div class="stat-value green" id="activeTrades">--</div>
                 <div class="stat-sub">managed positions</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Top Candidates</div>
-                <div class="stat-value purple" id="candidates">{{ bot_status.candidates_count }}</div>
+                <div class="stat-value purple" id="candidates">--</div>
                 <div class="stat-sub">pre-breakout signals</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Win Rate</div>
-                <div class="stat-value green" id="winRate">{{ "%.1f"|format(bot_status.win_rate or 0) }}%</div>
-                <div class="stat-sub" id="winLoss">{{ bot_status.wins or 0 }}W / {{ bot_status.losses or 0 }}L</div>
+                <div class="stat-value green" id="winRate">--%</div>
+                <div class="stat-sub" id="winLoss">--W / --L</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Total P&L</div>
-                <div class="stat-value {{ 'green' if (bot_status.total_profit or 0) >= 0 else 'red' }}" id="totalProfit">${{ "%.2f"|format(bot_status.total_profit or 0) }}</div>
+                <div class="stat-value green" id="totalProfit">$--</div>
                 <div class="stat-sub">lifetime</div>
             </div>
         </div>
@@ -352,7 +379,7 @@
                     <button class="refresh-btn" onclick="refreshHoldings()">Refresh</button>
                 </div>
                 <div class="panel-body" id="holdingsPanel">
-                    <div class="empty-state">Loading holdings...</div>
+                    <div class="empty-state">Loading...</div>
                 </div>
             </div>
 
@@ -362,7 +389,7 @@
                     <button class="refresh-btn" onclick="refreshTrades()">Refresh</button>
                 </div>
                 <div class="panel-body" id="tradesPanel">
-                    <div class="empty-state">Loading trades...</div>
+                    <div class="empty-state">Loading...</div>
                 </div>
             </div>
 
@@ -372,8 +399,18 @@
                     <button class="refresh-btn" onclick="refreshCandidates()">Refresh</button>
                 </div>
                 <div class="panel-body" id="candidatesPanel">
-                    <div class="empty-state">Loading candidates...</div>
+                    <div class="empty-state">Loading...</div>
                 </div>
+            </div>
+        </div>
+
+        <div class="panel full-width" style="margin-bottom: 1.5rem;">
+            <div class="panel-header">
+                <span>ML Learning Status (Telegram Bot Brain)</span>
+                <button class="refresh-btn" onclick="refreshMLStatus()">Refresh</button>
+            </div>
+            <div class="panel-body" id="mlPanel" style="max-height: 500px;">
+                <div class="empty-state">Loading ML data...</div>
             </div>
         </div>
 
@@ -382,7 +419,7 @@
                 <span>Coin Analyzer - Full 30 KPI Analysis</span>
                 <a href="/miniapp" target="_blank" style="color: #4299e1; font-size: 0.75rem; text-decoration: none;">Open Mini App</a>
             </div>
-            <div class="panel-body">
+            <div class="panel-body" style="max-height: none;">
                 <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
                     <input type="text" id="analyzeSymbol" placeholder="Enter symbol (e.g., BTC, ETH, FIS)" 
                            style="flex: 1; min-width: 200px; padding: 0.75rem 1rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(66,153,225,0.3); border-radius: 0.5rem; color: #fff; font-size: 1rem; text-transform: uppercase;"
@@ -412,30 +449,16 @@
                 </div>
             </div>
         </div>
-        <style>
-            @keyframes spin { to { transform: rotate(360deg); } }
-            .quick-pick-btn { padding: 0.375rem 0.75rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 1rem; color: #fff; font-size: 0.75rem; cursor: pointer; transition: all 0.2s; }
-            .quick-pick-btn:hover { background: rgba(66,153,225,0.2); border-color: #4299e1; }
-            .kpi-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 0.375rem; margin-bottom: 0.25rem; }
-            .kpi-name { font-size: 0.75rem; color: #a0aec0; }
-            .kpi-bar-container { display: flex; align-items: center; gap: 0.5rem; }
-            .kpi-bar { width: 60px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
-            .kpi-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
-            .kpi-bar-fill.high { background: #48bb78; }
-            .kpi-bar-fill.mid { background: #ecc94b; }
-            .kpi-bar-fill.low { background: #f56565; }
-            .kpi-value { font-size: 0.75rem; font-weight: 600; min-width: 35px; text-align: right; }
-        </style>
 
         <div class="bottom-grid">
             <div class="panel">
                 <div class="panel-header">
                     <span>Recent Activity Log</span>
-                    <span style="font-size: 0.75rem; color: #718096;">Auto-refreshing</span>
+                    <button class="refresh-btn" onclick="refreshLogs()">Refresh</button>
                 </div>
                 <div class="panel-body">
                     <div class="log-output" id="logOutput">
-                        <div class="log-line"><span class="log-time">[--:--:--]</span> Waiting for logs...</div>
+                        <div class="log-line">Loading logs...</div>
                     </div>
                 </div>
             </div>
@@ -446,7 +469,7 @@
                 </div>
                 <div class="panel-body">
                     <div style="margin-bottom: 1rem;">
-                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Market Sentiment</div>
+                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Market Sentiment (from candidates)</div>
                         <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.25rem;">
                             <span style="color: #48bb78;">Bullish: <span id="bullishPct">--</span>%</span>
                             <span style="color: #f56565;">Bearish: <span id="bearishPct">--</span>%</span>
@@ -457,7 +480,7 @@
                         </div>
                     </div>
                     <div style="margin-bottom: 1rem;">
-                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Active Indicators</div>
+                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Active Indicators (30 KPIs)</div>
                         <div style="display: flex; flex-wrap: wrap; gap: 0.375rem;">
                             <span class="kpi-badge">RSI</span>
                             <span class="kpi-badge">MACD</span>
@@ -467,13 +490,14 @@
                             <span class="kpi-badge">VWAP</span>
                             <span class="kpi-badge">OBV</span>
                             <span class="kpi-badge">MFI</span>
-                            <span class="kpi-badge">+22 more</span>
+                            <span class="kpi-badge">Stoch RSI</span>
+                            <span class="kpi-badge">ADX</span>
+                            <span class="kpi-badge">+20 more</span>
                         </div>
                     </div>
                     <div>
-                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Pairs Monitored</div>
-                        <div style="font-size: 1.5rem; font-weight: bold; color: #4299e1;" id="pairsCount">616</div>
-                        <div style="font-size: 0.75rem; color: #718096;">USD trading pairs</div>
+                        <div style="font-size: 0.75rem; color: #a0aec0; margin-bottom: 0.5rem;">Bot Configuration</div>
+                        <div id="botConfig" style="font-size: 0.8rem; color: #718096;">Loading...</div>
                     </div>
                 </div>
             </div>
@@ -482,15 +506,34 @@
 
     <script>
         const botToggle = document.getElementById('botToggle');
+        let isToggling = false;
+
+        async function apiFetch(url, options = {}) {
+            const response = await fetch(url, options);
+            if (response.redirected || response.status === 302) {
+                window.location.href = '/auth/replit_auth';
+                throw new Error('Auth required');
+            }
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                throw new Error('Not authenticated');
+            }
+            return response.json();
+        }
         
         botToggle.addEventListener('change', async function() {
+            if (isToggling) return;
+            isToggling = true;
             try {
-                const response = await fetch('/api/bot/toggle', { method: 'POST' });
-                const data = await response.json();
-                updateStatus();
+                const data = await apiFetch('/api/bot/toggle', { method: 'POST' });
+                setTimeout(() => {
+                    updateStatus();
+                    isToggling = false;
+                }, 1500);
             } catch (error) {
                 console.error('Toggle error:', error);
                 botToggle.checked = !botToggle.checked;
+                isToggling = false;
             }
         });
 
@@ -499,20 +542,22 @@
                 const response = await fetch('/status');
                 const data = await response.json();
                 
-                document.getElementById('currentTime').textContent = data.current_time;
+                document.getElementById('currentTime').textContent = data.current_time || '--';
                 document.getElementById('botStatusText').textContent = data.running ? 'Running' : 'Stopped';
                 document.getElementById('statusDot').className = 'status-dot ' + (data.running ? 'running' : 'stopped');
-                document.getElementById('tradingMode').textContent = data.mode;
+                document.getElementById('tradingMode').textContent = data.mode || '--';
                 document.getElementById('uptimeStart').textContent = data.uptime_start || 'N/A';
                 document.getElementById('balance').innerHTML = '$' + parseFloat(data.balance || 0).toFixed(2);
                 document.getElementById('activeTrades').textContent = data.active_trades || 0;
                 document.getElementById('candidates').textContent = data.candidates_count || 0;
-                document.getElementById('totalProfit').textContent = '$' + parseFloat(data.total_profit || 0).toFixed(2);
                 
-                const winRate = data.wins && (data.wins + data.losses) > 0 
-                    ? (data.wins / (data.wins + data.losses) * 100).toFixed(1) 
-                    : '0.0';
-                document.getElementById('winRate').textContent = winRate + '%';
+                const totalProfit = parseFloat(data.total_profit || 0);
+                const profitEl = document.getElementById('totalProfit');
+                profitEl.textContent = '$' + totalProfit.toFixed(2);
+                profitEl.className = 'stat-value ' + (totalProfit >= 0 ? 'green' : 'red');
+                
+                const winRate = data.win_rate || 0;
+                document.getElementById('winRate').textContent = winRate.toFixed(1) + '%';
                 document.getElementById('winLoss').textContent = (data.wins || 0) + 'W / ' + (data.losses || 0) + 'L';
                 
                 if (data.fear_greed) {
@@ -522,8 +567,27 @@
                     const fgColor = fg.value < 25 ? '#f56565' : fg.value < 50 ? '#ecc94b' : '#48bb78';
                     document.getElementById('fearGreedValue').style.color = fgColor;
                 }
+
+                if (data.error) {
+                    const errEl = document.getElementById('errorDisplay');
+                    errEl.style.display = 'inline';
+                    errEl.textContent = 'Error: ' + data.error;
+                } else {
+                    document.getElementById('errorDisplay').style.display = 'none';
+                }
                 
-                botToggle.checked = data.running;
+                const badge = document.getElementById('dataSourceBadge');
+                if (data.running) {
+                    badge.className = 'data-source-badge live';
+                    badge.textContent = 'LIVE';
+                } else {
+                    badge.className = 'data-source-badge file';
+                    badge.textContent = 'LAST SAVED';
+                }
+                
+                if (!isToggling) {
+                    botToggle.checked = data.running;
+                }
             } catch (error) {
                 console.error('Status update error:', error);
             }
@@ -531,8 +595,7 @@
 
         async function refreshHoldings() {
             try {
-                const response = await fetch('/api/holdings');
-                const data = await response.json();
+                const data = await apiFetch('/api/holdings');
                 const panel = document.getElementById('holdingsPanel');
                 
                 if (!data.holdings || data.holdings.length === 0) {
@@ -565,13 +628,13 @@
                 document.getElementById('holdingsCount').textContent = data.holdings.length + ' holdings';
             } catch (error) {
                 console.error('Holdings refresh error:', error);
+                document.getElementById('holdingsPanel').innerHTML = '<div class="empty-state">Failed to load holdings</div>';
             }
         }
 
         async function refreshTrades() {
             try {
-                const response = await fetch('/api/trades');
-                const data = await response.json();
+                const data = await apiFetch('/api/trades');
                 const panel = document.getElementById('tradesPanel');
                 
                 if (!data.trades || data.trades.length === 0) {
@@ -581,8 +644,8 @@
                 
                 panel.innerHTML = data.trades.map(trade => {
                     const isManual = trade.is_manual || trade.protected;
-                    const sideClass = isManual ? 'manual' : trade.side;
-                    const sideLabel = isManual ? 'MANUAL' : trade.side.toUpperCase();
+                    const sideClass = isManual ? 'manual' : (trade.side || 'buy');
+                    const sideLabel = isManual ? 'MANUAL' : (trade.side || 'buy').toUpperCase();
                     return `
                         <div class="trade-item ${sideClass}">
                             <div class="trade-header">
@@ -590,34 +653,34 @@
                                 <span class="trade-side ${sideClass}">${sideLabel}</span>
                             </div>
                             <div class="trade-details">
-                                <span>Entry: $${parseFloat(trade.entry_price).toFixed(6)}</span>
-                                <span>Size: ${parseFloat(trade.size).toFixed(4)}</span>
-                                <span>SL: $${parseFloat(trade.stop_loss).toFixed(6)}</span>
-                                <span>TP: $${parseFloat(trade.take_profit).toFixed(6)}</span>
+                                <span>Entry: $${parseFloat(trade.entry_price || 0).toFixed(6)}</span>
+                                <span>Size: ${parseFloat(trade.size || 0).toFixed(4)}</span>
+                                <span>SL: $${parseFloat(trade.stop_loss || 0).toFixed(6)}</span>
+                                <span>TP: $${parseFloat(trade.take_profit || 0).toFixed(6)}</span>
                             </div>
                         </div>
                     `;
                 }).join('');
             } catch (error) {
                 console.error('Trades refresh error:', error);
+                document.getElementById('tradesPanel').innerHTML = '<div class="empty-state">Failed to load trades</div>';
             }
         }
 
         async function refreshCandidates() {
             try {
-                const response = await fetch('/api/candidates');
-                const data = await response.json();
+                const data = await apiFetch('/api/candidates');
                 const panel = document.getElementById('candidatesPanel');
                 
                 if (!data.candidates || data.candidates.length === 0) {
-                    panel.innerHTML = '<div class="empty-state">Scanning for candidates...</div>';
+                    panel.innerHTML = '<div class="empty-state">No candidates - start the bot to scan</div>';
                     return;
                 }
                 
                 let bullish = 0, bearish = 0;
                 panel.innerHTML = data.candidates.slice(0, 20).map((c, i) => {
                     const stage = c.stage || 'ANALYZING';
-                    const stageClass = stage === 'BREAKOUT' ? 'breakout' : stage === 'PRE_BREAKOUT' ? 'pre-breakout' : '';
+                    const stageClass = stage === 'BREAKOUT' ? 'breakout' : stage.includes('PRE') ? 'pre-breakout' : '';
                     if (c.prebreakout_score > 60) bullish++;
                     else bearish++;
                     return `
@@ -627,7 +690,7 @@
                                 <span class="candidate-stage ${stageClass}">${stage}</span>
                             </div>
                             <div class="trade-details">
-                                <span>Score: <strong class="candidate-score">${parseFloat(c.prebreakout_score).toFixed(1)}</strong></span>
+                                <span>Score: <strong class="candidate-score">${parseFloat(c.prebreakout_score || 0).toFixed(1)}</strong></span>
                                 <span>Price: $${parseFloat(c.price || c.current_price || 0).toFixed(6)}</span>
                             </div>
                         </div>
@@ -643,13 +706,13 @@
                 document.getElementById('bearishBar').style.width = bearishPct + '%';
             } catch (error) {
                 console.error('Candidates refresh error:', error);
+                document.getElementById('candidatesPanel').innerHTML = '<div class="empty-state">Failed to load candidates</div>';
             }
         }
 
         async function refreshLogs() {
             try {
-                const response = await fetch('/api/logs');
-                const data = await response.json();
+                const data = await apiFetch('/api/logs');
                 const logOutput = document.getElementById('logOutput');
                 
                 if (data.logs && data.logs.length > 0) {
@@ -657,12 +720,101 @@
                         const levelClass = log.includes('ERROR') ? 'log-error' : 
                                           log.includes('WARNING') ? 'log-warn' : 
                                           log.includes('INFO') ? 'log-info' : '';
-                        return `<div class="log-line ${levelClass}">${log}</div>`;
+                        return `<div class="log-line ${levelClass}">${escapeHtml(log)}</div>`;
                     }).join('');
                     logOutput.scrollTop = logOutput.scrollHeight;
+                } else {
+                    logOutput.innerHTML = '<div class="log-line">No log entries yet</div>';
                 }
             } catch (error) {
                 console.error('Logs refresh error:', error);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function refreshMLStatus() {
+            try {
+                const data = await apiFetch('/api/ml/telegram');
+                const panel = document.getElementById('mlPanel');
+
+                if (data.status === 'no_data') {
+                    panel.innerHTML = '<div class="empty-state">No ML learning data yet. Start the bot and let it trade to build intelligence.</div>';
+                    return;
+                }
+
+                if (data.status === 'error') {
+                    panel.innerHTML = `<div class="empty-state" style="color: #f56565;">ML Error: ${data.error}</div>`;
+                    return;
+                }
+
+                const topSymbols = data.top_symbols || {};
+                const avoidedSymbols = data.avoided_symbols || [];
+                const bestStrategies = data.best_strategies || [];
+                const prefHours = (data.preferred_hours_utc || []).map(h => {
+                    const d = new Date();
+                    d.setUTCHours(h, 0, 0, 0);
+                    return d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true, timeZone: 'America/Los_Angeles' });
+                });
+
+                let lastUpdated = data.last_updated || 'Never';
+                if (lastUpdated !== 'Never') {
+                    try {
+                        const d = new Date(lastUpdated);
+                        lastUpdated = d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', dateStyle: 'medium', timeStyle: 'short' });
+                    } catch(e) {}
+                }
+
+                panel.innerHTML = `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+                        <div>
+                            <div style="font-size: 0.9rem; font-weight: 600; color: #48bb78; margin-bottom: 0.75rem;">Learned Performance</div>
+                            <div class="ml-stat"><span class="ml-label">Trades Analyzed</span><span class="ml-value" style="color: #4299e1;">${data.total_trades_learned || 0}</span></div>
+                            <div class="ml-stat"><span class="ml-label">Total Learned P&L</span><span class="ml-value" style="color: ${(data.total_pnl_learned||0) >= 0 ? '#48bb78' : '#f56565'};">${(data.total_pnl_learned||0).toFixed(2)}%</span></div>
+                            <div class="ml-stat"><span class="ml-label">Wins / Losses</span><span class="ml-value">${data.win_count || 0}W / ${data.loss_count || 0}L</span></div>
+                            <div class="ml-stat"><span class="ml-label">Confidence Threshold</span><span class="ml-value" style="color: #ecc94b;">${(data.confidence_threshold||70).toFixed(1)}%</span></div>
+                            <div class="ml-stat"><span class="ml-label">Min Profit Target</span><span class="ml-value" style="color: #48bb78;">${(data.min_profit_threshold||3).toFixed(1)}%</span></div>
+                            <div class="ml-stat"><span class="ml-label">Optimal Hold Time</span><span class="ml-value">${data.optimal_hold_mins || 60} min</span></div>
+                            <div class="ml-stat"><span class="ml-label">Total Alerts Sent</span><span class="ml-value">${data.total_alerts_sent || 0}</span></div>
+                            <div class="ml-stat"><span class="ml-label">Last Updated</span><span class="ml-value" style="font-size: 0.75rem;">${lastUpdated}</span></div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.9rem; font-weight: 600; color: #48bb78; margin-bottom: 0.75rem;">Preferred Symbols (learned winners)</div>
+                            <div style="margin-bottom: 1rem;">
+                                ${Object.keys(topSymbols).length > 0 
+                                    ? Object.entries(topSymbols).map(([sym, score]) => 
+                                        `<span class="ml-symbol-tag">${sym.replace('USD','')} +${parseFloat(score).toFixed(1)}%</span>`
+                                    ).join('')
+                                    : '<span style="color: #718096; font-size: 0.85rem;">No preferred symbols yet</span>'}
+                            </div>
+                            ${avoidedSymbols.length > 0 ? `
+                                <div style="font-size: 0.9rem; font-weight: 600; color: #f56565; margin-bottom: 0.5rem;">Avoided Symbols (learned losers)</div>
+                                <div style="margin-bottom: 1rem;">
+                                    ${avoidedSymbols.map(s => `<span class="ml-symbol-tag avoided">${s.replace('USD','')}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                            <div style="font-size: 0.9rem; font-weight: 600; color: #9f7aea; margin-bottom: 0.5rem;">Best Strategies</div>
+                            <div style="margin-bottom: 1rem;">
+                                ${bestStrategies.length > 0 
+                                    ? bestStrategies.map(s => `<span class="ml-strategy-tag">${s}</span>`).join('')
+                                    : '<span style="color: #718096; font-size: 0.85rem;">Not enough data</span>'}
+                            </div>
+                            <div style="font-size: 0.9rem; font-weight: 600; color: #ecc94b; margin-bottom: 0.5rem;">Best Trading Hours (PT)</div>
+                            <div>
+                                ${prefHours.length > 0 
+                                    ? prefHours.map(h => `<span class="kpi-badge" style="margin: 0.15rem;">${h}</span>`).join('')
+                                    : '<span style="color: #718096; font-size: 0.85rem;">All hours (no preference learned)</span>'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('ML status error:', error);
+                document.getElementById('mlPanel').innerHTML = '<div class="empty-state" style="color: #f56565;">Failed to load ML data</div>';
             }
         }
 
@@ -675,10 +827,7 @@
         
         async function analyzeCoin() {
             const symbol = document.getElementById('analyzeSymbol').value.trim().toUpperCase();
-            if (!symbol) {
-                alert('Please enter a symbol');
-                return;
-            }
+            if (!symbol) return;
             
             lastAnalyzedSymbol = symbol;
             const resultsDiv = document.getElementById('analysisResults');
@@ -694,13 +843,12 @@
             sendBtn.style.opacity = '0.5';
             
             try {
-                const response = await fetch(`/api/analyze/${symbol}`);
-                const data = await response.json();
+                const data = await apiFetch(`/api/analyze/${symbol}`);
                 
                 loadingDiv.style.display = 'none';
                 
                 if (data.error) {
-                    contentDiv.innerHTML = `<div style="background: rgba(245,101,101,0.1); border: 1px solid rgba(245,101,101,0.3); border-radius: 0.5rem; padding: 1rem; color: #f56565;">${data.error}</div>`;
+                    contentDiv.innerHTML = `<div style="background: rgba(245,101,101,0.1); border: 1px solid rgba(245,101,101,0.3); border-radius: 0.5rem; padding: 1rem; color: #f56565;">${escapeHtml(data.error)}</div>`;
                 } else {
                     renderAnalysisResults(data);
                     sendBtn.disabled = false;
@@ -708,7 +856,7 @@
                 }
             } catch (error) {
                 loadingDiv.style.display = 'none';
-                contentDiv.innerHTML = `<div style="background: rgba(245,101,101,0.1); border: 1px solid rgba(245,101,101,0.3); border-radius: 0.5rem; padding: 1rem; color: #f56565;">Failed to analyze. Please try again.</div>`;
+                contentDiv.innerHTML = `<div style="background: rgba(245,101,101,0.1); border: 1px solid rgba(245,101,101,0.3); border-radius: 0.5rem; padding: 1rem; color: #f56565;">Failed to analyze. Make sure the bot is running.</div>`;
             }
         }
         
@@ -723,7 +871,7 @@
             const tech = analysis.technical_indicators || {};
             
             const scoreColor = score >= 60 ? '#48bb78' : score >= 40 ? '#ecc94b' : '#f56565';
-            const stageEmoji = {'BREAKOUT': '🚀', 'LATE_PRE-BREAKOUT': '🔥', 'PRE-BREAKOUT': '⚡', 'EARLY_SETUP': '📊', 'ACCUMULATION': '🔄', 'DORMANT': '💤'}[stage] || '📈';
+            const stageEmoji = {'BREAKOUT': '\u{1F680}', 'LATE_PRE-BREAKOUT': '\u{1F525}', 'PRE-BREAKOUT': '\u26A1', 'EARLY_SETUP': '\u{1F4CA}', 'ACCUMULATION': '\u{1F504}', 'DORMANT': '\u{1F4A4}'}[stage] || '\u{1F4C8}';
             
             const kpiItems = [
                 ['RSI', features.rsi], ['Momentum', features.momentum_cf], ['Vol Spike', features.vol_spike],
@@ -751,15 +899,15 @@
                             <div><span style="color: #a0aec0;">Stage:</span> ${stageEmoji} ${stage}</div>
                             <div><span style="color: #a0aec0;">Confidence:</span> <span style="color: ${confidence >= 60 ? '#48bb78' : confidence >= 40 ? '#ecc94b' : '#f56565'}">${confidence.toFixed(1)}%</span></div>
                             <div><span style="color: #a0aec0;">Price:</span> <span style="color: #4299e1;">$${formatPrice(price)}</span></div>
-                            <div><span style="color: #a0aec0;">RSI:</span> <span style="color: ${tech.rsi > 70 ? '#f56565' : tech.rsi < 30 ? '#48bb78' : '#fff'}">${(tech.rsi || 0).toFixed(1)}</span></div>
+                            <div><span style="color: #a0aec0;">RSI:</span> <span style="color: ${(tech.rsi||50) > 70 ? '#f56565' : (tech.rsi||50) < 30 ? '#48bb78' : '#fff'}">${(tech.rsi || 0).toFixed(1)}</span></div>
                         </div>
                     </div>
                     <div style="background: rgba(66,153,225,0.1); border-radius: 0.75rem; padding: 1rem; border: 1px solid rgba(66,153,225,0.2);">
                         <div style="font-size: 0.875rem; font-weight: 600; color: #4299e1; margin-bottom: 0.75rem;">Trade Levels</div>
                         <div style="font-size: 0.875rem;">
-                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">🎯 Entry:</span> <span style="font-family: monospace;">$${formatPrice(analysis.buy_anchor || 0)}</span></div>
-                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">🛑 Stop Loss:</span> <span style="font-family: monospace; color: #f56565;">$${formatPrice(analysis.stop_loss || 0)}</span></div>
-                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">💰 Take Profit:</span> <span style="font-family: monospace; color: #48bb78;">$${formatPrice(analysis.take_profit || 0)}</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Entry:</span> <span style="font-family: monospace;">$${formatPrice(analysis.buy_anchor || 0)}</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Stop Loss:</span> <span style="font-family: monospace; color: #f56565;">$${formatPrice(analysis.stop_loss || 0)}</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Take Profit:</span> <span style="font-family: monospace; color: #48bb78;">$${formatPrice(analysis.take_profit || 0)}</span></div>
                         </div>
                     </div>
                 </div>
@@ -767,7 +915,7 @@
                     <div style="background: rgba(72,187,120,0.1); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid rgba(72,187,120,0.2);">
                         <div style="font-size: 0.75rem; font-weight: 600; color: #48bb78; margin-bottom: 0.5rem;">Active Signals</div>
                         <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                            ${reasons.map(r => `<span style="font-size: 0.75rem; background: rgba(72,187,120,0.2); padding: 0.25rem 0.5rem; border-radius: 0.25rem;">✅ ${r}</span>`).join('')}
+                            ${reasons.map(r => `<span style="font-size: 0.75rem; background: rgba(72,187,120,0.2); padding: 0.25rem 0.5rem; border-radius: 0.25rem;">${escapeHtml(r)}</span>`).join('')}
                         </div>
                     </div>
                 ` : ''}
@@ -780,61 +928,79 @@
                             <div class="kpi-row">
                                 <span class="kpi-name">${name}</span>
                                 <div class="kpi-bar-container">
-                                    <span class="kpi-bar"><span class="kpi-bar-fill ${barClass}" style="width: ${pct}%"></span></span>
-                                    <span class="kpi-value">${pct.toFixed(0)}%</span>
+                                    <div class="kpi-bar"><div class="kpi-bar-fill ${barClass}" style="width: ${Math.min(100, pct)}%;"></div></div>
+                                    <span class="kpi-value" style="color: ${pct >= 60 ? '#48bb78' : pct >= 40 ? '#ecc94b' : '#f56565'};">${pct.toFixed(0)}%</span>
                                 </div>
                             </div>
                         `;
                     }).join('')}
                 </div>
-                <div style="text-align: center; font-size: 0.75rem; color: #718096; margin-top: 1rem;">
-                    Analysis generated at ${data.timestamp}
-                </div>
             `;
+            
+            if (data.timeframes && Object.keys(data.timeframes).length > 1) {
+                html += `
+                    <div style="margin-top: 1rem; font-size: 0.8rem; color: #718096;">
+                        Analyzed timeframes: ${Object.keys(data.timeframes).join(', ')} | ${data.kpi_count || 30} KPIs per timeframe
+                    </div>
+                `;
+            }
             
             document.getElementById('analysisContent').innerHTML = html;
         }
-        
+
         async function sendAnalysisToTelegram() {
             if (!lastAnalyzedSymbol) return;
-            
             const btn = document.getElementById('sendTelegramBtn');
             btn.disabled = true;
             btn.textContent = 'Sending...';
-            
             try {
-                const response = await fetch(`/api/analyze/${lastAnalyzedSymbol}/telegram`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
-                
+                const data = await apiFetch(`/api/analyze/${lastAnalyzedSymbol}/telegram`, { method: 'POST' });
                 if (data.success) {
-                    btn.textContent = '✓ Sent to Telegram!';
+                    btn.textContent = 'Sent!';
+                    btn.style.background = 'linear-gradient(135deg, #48bb78, #38a169)';
                     setTimeout(() => {
                         btn.textContent = 'Send to Telegram';
+                        btn.style.background = 'linear-gradient(135deg, #0088cc, #00a0dc)';
                         btn.disabled = false;
-                    }, 3000);
+                    }, 2000);
                 } else {
-                    btn.textContent = 'Failed - Try Again';
-                    btn.disabled = false;
+                    btn.textContent = 'Failed';
+                    btn.style.background = 'linear-gradient(135deg, #f56565, #e53e3e)';
+                    setTimeout(() => {
+                        btn.textContent = 'Send to Telegram';
+                        btn.style.background = 'linear-gradient(135deg, #0088cc, #00a0dc)';
+                        btn.disabled = false;
+                    }, 2000);
                 }
             } catch (error) {
-                btn.textContent = 'Error - Try Again';
-                btn.disabled = false;
+                btn.textContent = 'Error';
+                setTimeout(() => {
+                    btn.textContent = 'Send to Telegram';
+                    btn.style.background = 'linear-gradient(135deg, #0088cc, #00a0dc)';
+                    btn.disabled = false;
+                }, 2000);
             }
         }
 
-        updateStatus();
-        refreshHoldings();
-        refreshTrades();
-        refreshCandidates();
-        refreshLogs();
-        
-        setInterval(updateStatus, 5000);
+        async function loadAllData() {
+            await Promise.all([
+                updateStatus(),
+                refreshHoldings(),
+                refreshTrades(),
+                refreshCandidates(),
+                refreshLogs(),
+                refreshMLStatus()
+            ]);
+        }
+
+        loadAllData();
+
+        setInterval(updateStatus, 10000);
+        setInterval(refreshLogs, 15000);
         setInterval(refreshHoldings, 30000);
-        setInterval(refreshTrades, 15000);
-        setInterval(refreshCandidates, 30000);
-        setInterval(refreshLogs, 10000);
+        setInterval(refreshTrades, 30000);
+        setInterval(refreshCandidates, 60000);
+        setInterval(refreshMLStatus, 60000);
     </script>
 </body>
 </html>

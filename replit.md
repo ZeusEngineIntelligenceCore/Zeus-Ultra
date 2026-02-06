@@ -4,7 +4,7 @@
 Zeus is a professional-grade autonomous cryptocurrency trading bot designed for the Kraken exchange with a multi-exchange architecture. Its core purpose is to identify and capitalize on pre-breakout trading opportunities using advanced technical analysis. Key capabilities include sophisticated market microstructure analysis, institutional-grade risk management, smart order execution, and AI/ML-driven learning. The project aims to provide a robust, self-improving trading solution for cryptocurrency markets, offering capabilities typically reserved for institutional traders to a broader audience.
 
 ## User Preferences
-- The bot should run automatically via the configured workflow.
+- The bot should NOT auto-start. It must be manually toggled ON from the dashboard.
 - In "LIVE" mode, the bot should execute trades.
 - In "PAPER" mode, the bot should allow safe testing without live trading.
 - Telegram alerts should be sent, adapting to trading preferences and patterns.

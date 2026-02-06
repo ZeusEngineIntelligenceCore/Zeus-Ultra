@@ -134,6 +134,13 @@ def status():
             except Exception:
                 pass
 
+    wins = status_copy.get("wins", 0)
+    losses = status_copy.get("losses", 0)
+    if wins + losses > 0:
+        status_copy["win_rate"] = round(wins / (wins + losses) * 100, 1)
+    else:
+        status_copy["win_rate"] = 0
+
     return jsonify(status_copy), 200
 
 
@@ -262,32 +269,54 @@ def api_holdings():
 recent_logs = []
 
 
+@app.after_request
+def add_cache_headers(response):
+    if request.path.startswith('/api/') or request.path in ('/status', '/dashboard'):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+
 @app.route("/api/logs")
 @require_login
 def api_logs():
     global recent_logs
-    try:
-        import subprocess
-        result = subprocess.run(["tail", "-50", "logs/zeus.log"],
-                                capture_output=True,
-                                text=True,
-                                timeout=5)
-        if result.stdout:
-            lines = result.stdout.strip().split('\n')
-            recent_logs = [l[:150] for l in lines[-30:]]
-    except Exception:
-        pass
+    log_paths = ["logs/zeus.log", "logs/trading.log"]
+    for log_path in log_paths:
+        try:
+            log_file = Path(log_path)
+            if log_file.exists() and log_file.stat().st_size > 0:
+                import subprocess
+                result = subprocess.run(["tail", "-50", log_path],
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=5)
+                if result.stdout:
+                    lines = result.stdout.strip().split('\n')
+                    recent_logs = [l[:200] for l in lines[-30:]]
+                    break
+        except Exception:
+            continue
+    if not recent_logs:
+        recent_logs = [f"[{format_la_time()}] Bot ready - waiting for manual start from dashboard"]
     return jsonify({"logs": recent_logs}), 200
 
 
 @app.route("/api/candidates")
 @require_login
 def api_candidates():
-    if not bot_instance:
-        return jsonify({"candidates": [], "error": "Bot not running"}), 200
+    candidates = []
     try:
-        state = bot_instance.get_status()
-        candidates = state.get("candidates", [])[:20]
+        if bot_instance and bot_instance.running:
+            state = bot_instance.get_status()
+            candidates = state.get("candidates", [])[:20]
+        if not candidates:
+            state_file = Path("data/bot_state.json")
+            if state_file.exists():
+                with open(state_file, 'r') as f:
+                    data = json.load(f)
+                candidates = data.get("candidates", [])[:20]
         return jsonify({
             "candidates": candidates,
             "count": len(candidates)
@@ -299,17 +328,61 @@ def api_candidates():
 @app.route("/api/ml/insights")
 @require_login
 def api_ml_insights():
-    if not bot_instance:
-        return jsonify({"error": "Bot not running"}), 200
+    result = {"basic_ml": {}, "advanced_ml": {}}
     try:
-        basic_ml = bot_instance.ml_engine.get_global_insights()
-        advanced_ml = bot_instance.advanced_ml.get_learning_summary()
-        return jsonify({
-            "basic_ml": basic_ml,
-            "advanced_ml": advanced_ml
-        }), 200
+        if bot_instance and bot_instance.running:
+            result["basic_ml"] = bot_instance.ml_engine.get_global_insights()
+            result["advanced_ml"] = bot_instance.advanced_ml.get_learning_summary()
+        else:
+            ml_file = Path("data/ml_learning.json")
+            if ml_file.exists():
+                with open(ml_file, 'r') as f:
+                    result["basic_ml"] = json.load(f)
+            adv_file = Path("data/advanced_ml.json")
+            if adv_file.exists():
+                with open(adv_file, 'r') as f:
+                    result["advanced_ml"] = json.load(f)
     except Exception as e:
-        return jsonify({"error": str(e)}), 200
+        result["error"] = str(e)
+    return jsonify(result), 200
+
+
+@app.route("/api/ml/telegram")
+@require_login
+def api_ml_telegram():
+    try:
+        tg_file = Path("data/telegram_learning.json")
+        if tg_file.exists():
+            with open(tg_file, 'r') as f:
+                data = json.load(f)
+            preferred = data.get("preferred_symbols", {})
+            top_symbols = sorted(preferred.items(), key=lambda x: x[1], reverse=True)[:10]
+            patterns = data.get("successful_trade_patterns", [])
+            total_pnl = sum(p.get("pnl_pct", 0) for p in patterns)
+            win_count = sum(1 for p in patterns if p.get("pnl_pct", 0) > 0)
+            return jsonify({
+                "status": "active",
+                "top_symbols": dict(top_symbols),
+                "avoided_symbols": data.get("avoided_symbols", []),
+                "preferred_hours_utc": data.get("preferred_hours", []),
+                "min_profit_threshold": data.get("min_profit_threshold", 3.0),
+                "optimal_hold_mins": data.get("preferred_hold_duration_mins", 60),
+                "confidence_threshold": data.get("learned_confidence_threshold", 70.0),
+                "best_strategies": data.get("best_performing_strategies", []),
+                "total_trades_learned": len(patterns),
+                "total_pnl_learned": round(total_pnl, 2),
+                "win_count": win_count,
+                "loss_count": len(patterns) - win_count,
+                "total_alerts_sent": data.get("total_alerts_sent", 0),
+                "last_updated": data.get("last_updated", "Never"),
+                "feedback": {
+                    "positive": data.get("positive_feedback_count", 0),
+                    "negative": data.get("negative_feedback_count", 0)
+                }
+            }), 200
+        return jsonify({"status": "no_data", "message": "No ML learning data yet"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 200
 
 
 @app.route("/api/bot/toggle", methods=["POST"])
