@@ -458,10 +458,6 @@ def dashboard():
 @app.route("/api/analyze/<symbol>")
 @require_login
 def api_analyze_coin(symbol):
-    if not bot_instance:
-        return jsonify(
-            {"error": "Bot not running - please start the bot first"}), 503
-
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
 
@@ -470,7 +466,6 @@ def api_analyze_coin(symbol):
         symbol = f"{symbol}USD"
 
     async def find_valid_pair(exchange, base_symbol):
-        """Try different Kraken pair formats to find a valid one"""
         markets = await exchange.fetch_markets()
         if not markets:
             return base_symbol
@@ -499,9 +494,20 @@ def api_analyze_coin(symbol):
 
     async def run_analysis():
         nonlocal symbol
+        standalone_exchange = None
         try:
-            exchange = bot_instance.exchange
-            prebreakout = bot_instance.prebreakout
+            if bot_instance:
+                exchange = bot_instance.exchange
+                prebreakout = bot_instance.prebreakout
+            else:
+                from src.zeus.exchanges.kraken import KrakenExchange
+                from src.zeus.indicators.prebreakout_detector import PreBreakoutDetector
+                kraken_key = os.environ.get("KRAKEN_API_KEY", "")
+                kraken_secret = os.environ.get("KRAKEN_API_SECRET", "")
+                standalone_exchange = KrakenExchange(api_key=kraken_key, api_secret=kraken_secret)
+                await standalone_exchange.connect()
+                exchange = standalone_exchange
+                prebreakout = PreBreakoutDetector()
             math_kernel = prebreakout.math
 
             valid_symbol = await find_valid_pair(exchange, symbol)
@@ -650,6 +656,12 @@ def api_analyze_coin(symbol):
             }
         except Exception as e:
             return {"error": str(e)}
+        finally:
+            if standalone_exchange:
+                try:
+                    await standalone_exchange.disconnect()
+                except Exception:
+                    pass
 
     try:
         loop = asyncio.new_event_loop()
