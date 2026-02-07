@@ -868,6 +868,22 @@ def run_server():
     port = int(os.environ.get("PORT", 5000))
     print(f"[SERVER] Starting production server on port {port}")
 
+    import subprocess
+    try:
+        result = subprocess.run(['lsof', '-ti', f':{port}'], capture_output=True, text=True, timeout=5)
+        if result.stdout.strip():
+            for pid in result.stdout.strip().split('\n'):
+                pid = pid.strip()
+                if pid and pid != str(os.getpid()):
+                    try:
+                        os.kill(int(pid), 9)
+                    except (ProcessLookupError, ValueError):
+                        pass
+            import time
+            time.sleep(1)
+    except Exception:
+        pass
+
     from gunicorn.app.base import BaseApplication
 
     class GunicornApp(BaseApplication):

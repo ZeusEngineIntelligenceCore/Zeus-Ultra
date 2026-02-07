@@ -180,11 +180,19 @@ def handle_error(blueprint, error, error_description=None, error_uri=None):
     return redirect(url_for('replit_auth.error'))
 
 
+def _is_api_request():
+    from flask import jsonify as _jfy
+    return request.path.startswith('/api/') or request.headers.get('Accept', '').startswith('application/json') or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+
 def require_login(f):
 
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated:
+            if _is_api_request():
+                from flask import jsonify as _jfy
+                return _jfy({"error": "Authentication required", "auth_url": "/auth/replit_auth/login"}), 401
             session["next_url"] = get_next_navigation_url(request)
             return redirect(url_for('replit_auth.login'))
 
@@ -200,6 +208,9 @@ def require_login(f):
                     )
                     replit.token = new_token
                 except InvalidGrantError:
+                    if _is_api_request():
+                        from flask import jsonify as _jfy
+                        return _jfy({"error": "Session expired", "auth_url": "/auth/replit_auth/login"}), 401
                     session["next_url"] = get_next_navigation_url(request)
                     return redirect(url_for('replit_auth.login'))
 

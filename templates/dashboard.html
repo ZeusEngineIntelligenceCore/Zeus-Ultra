@@ -509,14 +509,27 @@
         let isToggling = false;
 
         async function apiFetch(url, options = {}) {
+            options.credentials = 'same-origin';
+            if (!options.headers) options.headers = {};
+            options.headers['Accept'] = 'application/json';
             const response = await fetch(url, options);
-            if (response.redirected || response.status === 302) {
-                window.location.href = '/auth/replit_auth';
+            if (response.status === 401) {
+                const data = await response.json().catch(() => ({}));
+                if (data.auth_url) {
+                    window.location.href = data.auth_url;
+                } else {
+                    window.location.reload();
+                }
+                throw new Error('Auth required');
+            }
+            if (response.redirected && !response.url.includes('/api/')) {
+                window.location.href = response.url;
                 throw new Error('Auth required');
             }
             const contentType = response.headers.get('content-type') || '';
             if (!contentType.includes('application/json')) {
-                throw new Error('Not authenticated');
+                window.location.reload();
+                throw new Error('Session expired');
             }
             return response.json();
         }
