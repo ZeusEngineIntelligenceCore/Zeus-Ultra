@@ -1280,4 +1280,4 @@ class MultiTimeframeAnalyzer:
             "timeframe_alignment": round(alignment, 4),
             "timeframe_momentum": round(momentum, 4),
             "analyzed_timeframes": valid_tfs
-
+        }
