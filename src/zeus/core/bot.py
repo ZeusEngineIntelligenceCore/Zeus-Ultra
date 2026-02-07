@@ -487,6 +487,24 @@ class ZeusBot:
             bullish_count = sum(1 for tf, d in mtf_data.items() if d.get("stage") in ["PRE_BREAKOUT", "BREAKOUT"])
             if bullish_count >= 2 or combined_score >= 55:
                 order_book = await self.exchange.analyze_order_book(pair)
+                if order_book and primary_tf.get("features"):
+                    try:
+                        primary_key = "1h" if "1h" in mtf_data else list(mtf_data.keys())[0]
+                        ohlcv_ob = await self.exchange.fetch_ohlcv(pair, primary_key, 500)
+                        if len(ohlcv_ob) >= 50:
+                            h_ob = [c.high for c in ohlcv_ob]
+                            l_ob = [c.low for c in ohlcv_ob]
+                            cl_ob = [c.close for c in ohlcv_ob]
+                            vol_ob = [c.volume for c in ohlcv_ob]
+                            enhanced = await self.prebreakout.analyze(pair, h_ob, l_ob, cl_ob, vol_ob, order_book=order_book)
+                            orig_score = primary_tf.get("prebreakout_score", 0)
+                            enhanced_score = enhanced.get("prebreakout_score", 0)
+                            if enhanced_score > orig_score:
+                                primary_tf = enhanced
+                                ob_boost = min(1.08, 1.0 + (enhanced_score - orig_score) / 200)
+                                combined_score = min(combined_score * ob_boost, 100.0)
+                    except Exception:
+                        pass
                 stage = primary_tf.get("stage", "UNKNOWN")
                 reasons = [f"MTF aligned ({bullish_count}/5 bullish)"] + primary_tf.get("reasons", [])
                 try:
