@@ -934,7 +934,8 @@
                     <div style="background: rgba(66,153,225,0.1); border-radius: 0.75rem; padding: 1rem; border: 1px solid rgba(66,153,225,0.2);">
                         <div style="font-size: 0.875rem; font-weight: 600; color: #4299e1; margin-bottom: 0.75rem;">Trade Levels</div>
                         <div style="font-size: 0.875rem;">
-                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Entry:</span> <span style="font-family: monospace;">$${formatPrice(analysis.buy_anchor || 0)}</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Entry (Market):</span> <span style="font-family: monospace;">$${formatPrice(price)}</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Limit Entry:</span> <span style="font-family: monospace; color: #9f7aea;">$${formatPrice(analysis.buy_anchor || price)}</span></div>
                             <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Stop Loss:</span> <span style="font-family: monospace; color: #f56565;">$${formatPrice(analysis.stop_loss || 0)}</span></div>
                             <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Take Profit:</span> <span style="font-family: monospace; color: #48bb78;">$${formatPrice(analysis.take_profit || 0)}</span></div>
                         </div>

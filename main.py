@@ -772,15 +772,13 @@ def api_analyze_to_telegram(symbol):
                 for reason in reasons[:5]:
                     msg_lines.append(f"✅ {reason}")
 
+            fmt = lambda v: f"${v:.8f}" if price < 1 else f"${v:.4f}"
             msg_lines.extend([
                 "", f"━━━ <b>TRADE LEVELS</b> ━━━",
-                f"🎯 Entry: ${analysis.get('buy_anchor', 0):.8f}" if price < 1
-                else f"🎯 Entry: ${analysis.get('buy_anchor', 0):.4f}",
-                f"🛑 Stop Loss: ${analysis.get('stop_loss', 0):.8f}" if price
-                < 1 else f"🛑 Stop Loss: ${analysis.get('stop_loss', 0):.4f}",
-                f"💰 Take Profit: ${analysis.get('take_profit', 0):.8f}"
-                if price < 1 else
-                f"💰 Take Profit: ${analysis.get('take_profit', 0):.4f}", "",
+                f"🎯 Entry (Market): {fmt(price)}",
+                f"📍 Limit Entry: {fmt(analysis.get('buy_anchor', price))}",
+                f"🛑 Stop Loss: {fmt(analysis.get('stop_loss', 0))}",
+                f"💰 Take Profit: {fmt(analysis.get('take_profit', 0))}", "",
                 f"⏰ {format_la_time()}"
             ])
 

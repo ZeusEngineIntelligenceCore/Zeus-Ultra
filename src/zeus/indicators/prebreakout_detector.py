@@ -283,8 +283,15 @@ class PreBreakoutDetector:
         momentum = feats.get("momentum_cf", 0.5)
         impulse = feats.get("impulse", 0.5)
         candle = feats.get("candle_proj", 0.5)
-        buy_anchor = recent_low + (0.3 * microtrend + 0.2 * momentum) * atr_val
+        raw_buy_anchor = recent_low + (0.3 * microtrend + 0.2 * momentum) * atr_val
+        max_distance = 3.0 * atr_val
+        if last - raw_buy_anchor > max_distance:
+            buy_anchor = last - max_distance
+        else:
+            buy_anchor = raw_buy_anchor
         sell_anchor = recent_high + (0.5 * impulse + 0.3 * candle) * atr_val
+        if sell_anchor < last + atr_val:
+            sell_anchor = last + atr_val
         buy_ladder = {}
         sell_ladder = {}
         for t in range(1, self.cfg.ladder_tiers + 1):
