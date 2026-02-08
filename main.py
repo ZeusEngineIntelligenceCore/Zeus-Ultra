@@ -533,60 +533,39 @@ def api_analyze_coin(symbol):
                         symbol, high, low, close, volume)
 
                     rsi = math_kernel.rsi(close)
-                    macd_line, signal_line, macd_hist = math_kernel.macd(close)
-                    bb_upper, bb_mid, bb_lower = math_kernel.bollinger_bands(
-                        close)
-                    atr = math_kernel.atr(high, low, close)
-                    stoch_k, stoch_d = math_kernel.stochastic_rsi(close)
-                    ema9 = math_kernel.ema(close, 9)
-                    ema20 = math_kernel.ema(close, 20)
-                    ema50 = math_kernel.ema(close, 50)
-                    sma200 = math_kernel.sma(close, 200)
-                    adx_val, plus_di, minus_di = math_kernel.adx(
-                        high, low, close)
-
-                    analysis["technical_indicators"] = {
-                        "rsi":
-                        round(rsi, 2),
-                        "macd":
-                        round(macd_line, 8),
-                        "macd_signal":
-                        round(signal_line, 8),
-                        "macd_histogram":
-                        round(macd_hist, 8),
-                        "bb_upper":
-                        round(bb_upper, 8),
-                        "bb_middle":
-                        round(bb_mid, 8),
-                        "bb_lower":
-                        round(bb_lower, 8),
-                        "bb_position":
-                        round((close[-1] - bb_lower) / (bb_upper - bb_lower) *
-                              100, 2) if (bb_upper - bb_lower) > 0 else 50,
-                        "atr":
-                        round(atr, 8),
-                        "atr_pct":
-                        round(atr / close[-1] *
-                              100, 2) if close[-1] > 0 else 0,
-                        "stoch_k":
-                        round(stoch_k, 2),
-                        "stoch_d":
-                        round(stoch_d, 2),
-                        "ema_9":
-                        round(ema9, 8),
-                        "ema_20":
-                        round(ema20, 8),
-                        "ema_50":
-                        round(ema50, 8),
-                        "sma_200":
-                        round(sma200, 8),
-                        "adx":
-                        round(adx_val, 2),
-                        "plus_di":
-                        round(plus_di, 2),
-                        "minus_di":
-                        round(minus_di, 2)
-                    }
+                    analysis["technical_indicators"] = {"rsi": round(rsi, 2)}
+                    try:
+                        macd_line, signal_line, macd_hist = math_kernel.macd(close)
+                        bb_upper, bb_mid, bb_lower = math_kernel.bollinger_bands(close)
+                        atr = math_kernel.atr(high, low, close)
+                        stoch_k, stoch_d = math_kernel.stochastic_rsi(close)
+                        ema9 = math_kernel.ema(close, 9)
+                        ema20 = math_kernel.ema(close, 20)
+                        ema50 = math_kernel.ema(close, 50)
+                        sma200 = math_kernel.sma(close, 200)
+                        adx_val, plus_di, minus_di = math_kernel.adx(high, low, close)
+                        analysis["technical_indicators"].update({
+                            "macd": round(macd_line, 8),
+                            "macd_signal": round(signal_line, 8),
+                            "macd_histogram": round(macd_hist, 8),
+                            "bb_upper": round(bb_upper, 8),
+                            "bb_middle": round(bb_mid, 8),
+                            "bb_lower": round(bb_lower, 8),
+                            "bb_position": round((close[-1] - bb_lower) / (bb_upper - bb_lower) * 100, 2) if (bb_upper - bb_lower) > 0 else 50,
+                            "atr": round(atr, 8),
+                            "atr_pct": round(atr / close[-1] * 100, 2) if close[-1] > 0 else 0,
+                            "stoch_k": round(stoch_k, 2),
+                            "stoch_d": round(stoch_d, 2),
+                            "ema_9": round(ema9, 8),
+                            "ema_20": round(ema20, 8),
+                            "ema_50": round(ema50, 8),
+                            "sma_200": round(sma200, 8),
+                            "adx": round(adx_val, 2),
+                            "plus_di": round(plus_di, 2),
+                            "minus_di": round(minus_di, 2)
+                        })
+                    except Exception:
+                        pass
 
                     price_change_24h = (
                         (close[-1] - close[-min(24, len(close))]) /

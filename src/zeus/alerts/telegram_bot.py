@@ -1023,8 +1023,15 @@ Use the buttons below or type commands to interact with me.
             msg += f"• Action Values: {rl.get('action_value_count', 0)}\n"
             msg += f"• Training Epochs: {summary.get('training_epochs', 0)}\n\n"
             msg += f"<b>Top Indicators:</b>\n"
-            for idx, (ind, score) in enumerate(list(summary.get('top_indicators', {}).items())[:5]):
-                msg += f"{idx+1}. {ind}: {score:.3f}\n"
+            top_ind = summary.get('top_indicators', [])
+            if isinstance(top_ind, dict):
+                for idx, (ind, score) in enumerate(list(top_ind.items())[:5]):
+                    msg += f"{idx+1}. {ind}: {score:.3f}\n"
+            elif isinstance(top_ind, list):
+                for idx, ind in enumerate(top_ind[:5]):
+                    msg += f"{idx+1}. {ind}\n"
+            else:
+                msg += "No data yet\n"
             await update.message.reply_text(msg, parse_mode="HTML", reply_markup=self.get_main_keyboard())
         except Exception as e:
             await update.message.reply_text(f"⚠️ Error: {str(e)[:100]}", reply_markup=self.get_main_keyboard())

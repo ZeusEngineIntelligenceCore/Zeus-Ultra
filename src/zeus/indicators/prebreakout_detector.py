@@ -1156,8 +1156,10 @@ class PreBreakoutDetector:
         stage = self.determine_stage(prebreakout_score, feats)
         buy_ladder, sell_ladder, buy_anchor, sell_anchor = self.build_price_ladders(close, feats)
         atr = self.calculate_atr(close)
-        stop_loss = close[-1] - (2.0 * atr)
-        take_profit = close[-1] + (3.0 * atr)
+        min_distance = close[-1] * 0.005
+        effective_atr = max(atr, min_distance)
+        stop_loss = close[-1] - (2.0 * effective_atr)
+        take_profit = close[-1] + (3.0 * effective_atr)
         reasons = []
         if feats["squeeze"] > 0.7:
             reasons.append("TTM Squeeze Building")

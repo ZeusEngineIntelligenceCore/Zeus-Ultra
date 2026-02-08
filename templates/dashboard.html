@@ -885,7 +885,7 @@
                 }
             } catch (error) {
                 loadingDiv.style.display = 'none';
-                contentDiv.innerHTML = `<div style="background: rgba(245,101,101,0.1); border: 1px solid rgba(245,101,101,0.3); border-radius: 0.5rem; padding: 1rem; color: #f56565;">Failed to analyze. Make sure the bot is running.</div>`;
+                contentDiv.innerHTML = `<div style="background: rgba(245,101,101,0.1); border: 1px solid rgba(245,101,101,0.3); border-radius: 0.5rem; padding: 1rem; color: #f56565;">Failed to analyze. Check your connection and try again.</div>`;
             }
         }
         
@@ -903,7 +903,7 @@
             const stageEmoji = {'BREAKOUT': '\u{1F680}', 'LATE_PRE-BREAKOUT': '\u{1F525}', 'PRE-BREAKOUT': '\u26A1', 'EARLY_SETUP': '\u{1F4CA}', 'ACCUMULATION': '\u{1F504}', 'DORMANT': '\u{1F4A4}'}[stage] || '\u{1F4C8}';
             
             const kpiItems = [
-                ['RSI', features.rsi], ['Momentum', features.momentum_cf], ['Vol Spike', features.vol_spike],
+                ['RSI Signal', features.rsi], ['Momentum', features.momentum_cf], ['Vol Spike', features.vol_spike],
                 ['Pressure', features.pressure], ['Microtrend', features.microtrend], ['Impulse', features.impulse],
                 ['Squeeze', features.squeeze], ['ADX', features.adx_strength], ['Supertrend', features.supertrend_conf],
                 ['Aroon', features.aroon_signal], ['Vortex', features.vortex_signal], ['Williams %R', features.williams_r],
@@ -928,7 +928,7 @@
                             <div><span style="color: #a0aec0;">Stage:</span> ${stageEmoji} ${stage}</div>
                             <div><span style="color: #a0aec0;">Confidence:</span> <span style="color: ${confidence >= 60 ? '#48bb78' : confidence >= 40 ? '#ecc94b' : '#f56565'}">${confidence.toFixed(1)}%</span></div>
                             <div><span style="color: #a0aec0;">Price:</span> <span style="color: #4299e1;">$${formatPrice(price)}</span></div>
-                            <div><span style="color: #a0aec0;">RSI:</span> <span style="color: ${(tech.rsi||50) > 70 ? '#f56565' : (tech.rsi||50) < 30 ? '#48bb78' : '#fff'}">${(tech.rsi || 0).toFixed(1)}</span></div>
+                            <div><span style="color: #a0aec0;">RSI:</span> <span style="color: ${(tech.rsi||50) > 70 ? '#f56565' : (tech.rsi||50) < 30 ? '#48bb78' : '#fff'}">${tech.rsi != null ? tech.rsi.toFixed(1) : 'N/A'}</span></div>
                         </div>
                     </div>
                     <div style="background: rgba(66,153,225,0.1); border-radius: 0.75rem; padding: 1rem; border: 1px solid rgba(66,153,225,0.2);">
