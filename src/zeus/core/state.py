@@ -5,10 +5,10 @@ Manages positions, trades, and bot configuration
 """
 
 from __future__ import annotations
-import asyncio
 import json
 import os
-from dataclasses import dataclass, field, asdict
+import threading
+from dataclasses import dataclass, field, fields, asdict
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -19,6 +19,12 @@ from ..exchanges.base import Position, OrderSide
 
 logger = logging.getLogger("Zeus.State")
 LA_TZ = pytz.timezone('America/Los_Angeles')
+
+
+def _safe_trade_record(data: dict) -> 'TradeRecord':
+    valid_keys = {f.name for f in fields(TradeRecord)}
+    filtered = {k: v for k, v in data.items() if k in valid_keys}
+    return TradeRecord(**filtered)
 
 
 @dataclass
@@ -93,7 +99,7 @@ class StateManager:
     def __init__(self, state_file: str = "data/bot_state.json"):
         self.state_file = Path(state_file)
         self.state = BotState()
-        self.lock = asyncio.Lock()
+        self.lock = threading.Lock()
         self._load_state()
 
     def _load_state(self) -> None:
@@ -108,16 +114,31 @@ class StateManager:
                     self.state.wins = data.get("wins", 0)
                     self.state.losses = data.get("losses", 0)
                     for trade_data in data.get("trade_history", []):
-                        self.state.trade_history.append(TradeRecord(**trade_data))
+                        try:
+                            self.state.trade_history.append(_safe_trade_record(trade_data))
+                        except Exception as e:
+                            logger.warning(f"Skipping invalid trade history entry: {e}")
                     for tid, trade_data in data.get("active_trades", {}).items():
-                        self.state.active_trades[tid] = TradeRecord(**trade_data)
+                        try:
+                            self.state.active_trades[tid] = _safe_trade_record(trade_data)
+                        except Exception as e:
+                            logger.warning(f"Skipping invalid active trade {tid}: {e}")
                     self.state.holdings = data.get("holdings", {})
                 logger.info(f"Loaded state from {self.state_file}")
             except Exception as e:
                 logger.error(f"Failed to load state: {e}")
 
+    def _serialize_trade(self, trade: TradeRecord) -> dict:
+        d = asdict(trade)
+        if d.get("entry_features") and not isinstance(d["entry_features"], dict):
+            try:
+                d["entry_features"] = asdict(d["entry_features"])
+            except Exception:
+                d["entry_features"] = {}
+        return d
+
     async def save_state(self) -> None:
-        async with self.lock:
+        with self.lock:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             try:
                 data = {
@@ -127,8 +148,8 @@ class StateManager:
                     "total_pnl": self.state.total_pnl,
                     "wins": self.state.wins,
                     "losses": self.state.losses,
-                    "active_trades": {k: asdict(v) for k, v in self.state.active_trades.items()},
-                    "trade_history": [asdict(t) for t in self.state.trade_history[-100:]],
+                    "active_trades": {k: self._serialize_trade(v) for k, v in self.state.active_trades.items()},
+                    "trade_history": [self._serialize_trade(t) for t in self.state.trade_history[-100:]],
                     "holdings": self.state.holdings,
                     "last_updated": datetime.now(LA_TZ).isoformat(),
                     "fear_greed": getattr(self.state, '_fear_greed', None),
@@ -141,41 +162,41 @@ class StateManager:
                 logger.error(f"Failed to save state: {e}")
 
     async def update_config(self, **kwargs) -> None:
-        async with self.lock:
+        with self.lock:
             for key, value in kwargs.items():
                 if hasattr(self.state.config, key):
                     setattr(self.state.config, key, value)
         await self.save_state()
 
     async def update_equity(self, equity: float) -> None:
-        async with self.lock:
+        with self.lock:
             self.state.equity = equity
             self.state.peak_equity = max(self.state.peak_equity, equity)
         await self.save_state()
 
     async def update_holdings(self, holdings: Dict[str, float]) -> None:
-        async with self.lock:
+        with self.lock:
             self.state.holdings = holdings
         await self.save_state()
 
     async def add_candidate(self, candidate: Dict[str, Any]) -> None:
-        async with self.lock:
+        with self.lock:
             existing = [c for c in self.state.candidates if c.get("symbol") != candidate.get("symbol")]
             existing.append(candidate)
             existing.sort(key=lambda x: x.get("prebreakout_score", 0), reverse=True)
             self.state.candidates = existing[:20]
 
     async def set_candidates(self, candidates: List[Dict[str, Any]]) -> None:
-        async with self.lock:
+        with self.lock:
             self.state.candidates = candidates[:20]
 
     async def open_trade(self, trade: TradeRecord) -> None:
-        async with self.lock:
+        with self.lock:
             self.state.active_trades[trade.id] = trade
         await self.save_state()
 
     async def close_trade(self, trade_id: str, exit_price: float, reason: str) -> Optional[TradeRecord]:
-        async with self.lock:
+        with self.lock:
             if trade_id not in self.state.active_trades:
                 return None
             trade = self.state.active_trades[trade_id]
@@ -199,17 +220,17 @@ class StateManager:
         return trade
 
     async def set_status(self, status: str) -> None:
-        async with self.lock:
+        with self.lock:
             self.state.status = status
             if status == "SCANNING":
                 self.state.last_scan = datetime.now(LA_TZ).isoformat()
 
     async def increment_errors(self) -> None:
-        async with self.lock:
+        with self.lock:
             self.state.errors += 1
 
     async def reset_daily_stats(self) -> None:
-        async with self.lock:
+        with self.lock:
             self.state.daily_pnl = 0.0
 
     def get_open_positions_count(self) -> int:
@@ -255,7 +276,7 @@ class StateManager:
             "config": asdict(self.state.config),
             "stats": self.get_stats(),
             "candidates": self.state.candidates,
-            "active_trades": [asdict(t) for t in self.state.active_trades.values()],
-            "trade_history": [asdict(t) for t in self.state.trade_history[-50:]],
+            "active_trades": [self._serialize_trade(t) for t in self.state.active_trades.values()],
+            "trade_history": [self._serialize_trade(t) for t in self.state.trade_history[-50:]],
             "holdings": self.state.holdings
         }

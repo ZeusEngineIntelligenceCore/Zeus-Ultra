@@ -552,8 +552,7 @@
 
         async function updateStatus() {
             try {
-                const response = await fetch('/status');
-                const data = await response.json();
+                const data = await apiFetch('/status');
                 
                 document.getElementById('currentTime').textContent = data.current_time || '--';
                 document.getElementById('botStatusText').textContent = data.running ? 'Running' : 'Stopped';

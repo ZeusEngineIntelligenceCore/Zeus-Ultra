@@ -115,7 +115,8 @@ def status():
                         }
                 state_loaded = True
             except Exception as e:
-                pass
+                import logging
+                logging.getLogger("Zeus.Status").warning(f"Failed to get live bot status: {e}")
 
         if not state_loaded:
             try:
@@ -778,6 +779,11 @@ def api_analyze_to_telegram(symbol):
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204
 
 
 @app.route("/miniapp")

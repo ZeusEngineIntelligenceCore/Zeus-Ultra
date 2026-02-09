@@ -10,6 +10,7 @@ import os
 import time
 import logging
 from datetime import datetime, timezone
+from dataclasses import asdict
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 import pytz
@@ -759,6 +760,9 @@ class ZeusBot:
             return None
         if adv_risk.warnings:
             logger.info(f"[TRADE INFO] Risk warnings for {signal.symbol}: {adv_risk.warnings}")
+        if signal.entry_price <= 0:
+            logger.warning(f"[TRADE BLOCKED] Invalid entry price ${signal.entry_price} for {signal.symbol}")
+            return None
         size = self.risk_manager.calculate_optimal_size(
             signal.entry_price,
             signal.stop_loss,
@@ -949,7 +953,10 @@ class ZeusBot:
         )
         if sell_order_id:
             trade.sell_order_id = sell_order_id
-        trade.entry_features = features
+        try:
+            trade.entry_features = asdict(features) if hasattr(features, '__dataclass_fields__') else (features if isinstance(features, dict) else {})
+        except Exception:
+            trade.entry_features = {}
         await self.state.open_trade(trade)
         await self.telegram.send_trade_opened(
             signal.symbol,
