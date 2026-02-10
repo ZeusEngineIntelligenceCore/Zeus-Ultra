@@ -497,18 +497,14 @@ def api_analyze_coin(symbol):
         nonlocal symbol
         standalone_exchange = None
         try:
-            if bot_instance:
-                exchange = bot_instance.exchange
-                prebreakout = bot_instance.prebreakout
-            else:
-                from src.zeus.exchanges.kraken import KrakenExchange
-                from src.zeus.indicators.prebreakout_detector import PreBreakoutDetector
-                kraken_key = os.environ.get("KRAKEN_API_KEY", "")
-                kraken_secret = os.environ.get("KRAKEN_API_SECRET", "")
-                standalone_exchange = KrakenExchange(api_key=kraken_key, api_secret=kraken_secret)
-                await standalone_exchange.connect()
-                exchange = standalone_exchange
-                prebreakout = PreBreakoutDetector()
+            from src.zeus.exchanges.kraken import KrakenExchange
+            from src.zeus.indicators.prebreakout_detector import PreBreakoutDetector
+            kraken_key = os.environ.get("KRAKEN_API_KEY", "")
+            kraken_secret = os.environ.get("KRAKEN_API_SECRET", "")
+            standalone_exchange = KrakenExchange(api_key=kraken_key, api_secret=kraken_secret)
+            await standalone_exchange.connect()
+            exchange = standalone_exchange
+            prebreakout = PreBreakoutDetector()
             math_kernel = prebreakout.math
 
             valid_symbol = await find_valid_pair(exchange, symbol)
@@ -665,13 +661,26 @@ def api_analyze_to_telegram(symbol):
     if not symbol.endswith("USD"):
         symbol = f"{symbol}USD"
 
-    async def send_analysis():
-        try:
-            telegram = bot_instance.telegram
-            exchange = bot_instance.exchange
-            prebreakout = bot_instance.prebreakout
+    import requests as req
 
-            ohlcv = await exchange.fetch_ohlcv(symbol, "15m", limit=500)
+    telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+    if not telegram_token or not telegram_chat_id:
+        return jsonify({"error": "Telegram not configured"}), 503
+
+    async def build_analysis():
+        tg_exchange = None
+        try:
+            from src.zeus.exchanges.kraken import KrakenExchange
+            from src.zeus.indicators.prebreakout_detector import PreBreakoutDetector
+            kraken_key = os.environ.get("KRAKEN_API_KEY", "")
+            kraken_secret = os.environ.get("KRAKEN_API_SECRET", "")
+            tg_exchange = KrakenExchange(api_key=kraken_key, api_secret=kraken_secret)
+            await tg_exchange.connect()
+            prebreakout = PreBreakoutDetector()
+
+            ohlcv = await tg_exchange.fetch_ohlcv(symbol, "15m", limit=500)
             if not ohlcv or len(ohlcv) < 50:
                 return {"error": f"Insufficient data for {symbol}"}
 
@@ -680,8 +689,7 @@ def api_analyze_to_telegram(symbol):
             close = [c.close for c in ohlcv]
             volume = [c.volume for c in ohlcv]
 
-            analysis = await prebreakout.analyze(symbol, high, low, close,
-                                                 volume)
+            analysis = await prebreakout.analyze(symbol, high, low, close, volume)
 
             score = analysis.get("prebreakout_score", 0)
             stage = analysis.get("stage", "UNKNOWN")
@@ -691,22 +699,24 @@ def api_analyze_to_telegram(symbol):
             reasons = analysis.get("reasons", [])
 
             stage_emoji = {
-                "BREAKOUT": "🚀",
-                "LATE_PRE-BREAKOUT": "🔥",
-                "PRE-BREAKOUT": "⚡",
-                "EARLY_SETUP": "📊",
-                "ACCUMULATION": "🔄",
-                "DORMANT": "💤"
-            }.get(stage, "📈")
+                "BREAKOUT": "\U0001F680",
+                "LATE_PRE-BREAKOUT": "\U0001F525",
+                "PRE-BREAKOUT": "\u26A1",
+                "EARLY_SETUP": "\U0001F4CA",
+                "ACCUMULATION": "\U0001F504",
+                "DORMANT": "\U0001F4A4"
+            }.get(stage, "\U0001F4C8")
 
+            price_str = f"${price:.8f}" if price < 1 else f"${price:.4f}"
             msg_lines = [
-                f"🔬 <b>ZEUS COIN ANALYSIS</b>", f"━━━━━━━━━━━━━━━━━━━━", f"",
-                f"<b>Symbol:</b> {symbol}", f"<b>Price:</b> ${price:.8f}"
-                if price < 1 else f"<b>Price:</b> ${price:.4f}",
+                f"\U0001F52C <b>ZEUS COIN ANALYSIS</b>",
+                "\u2501" * 20, "",
+                f"<b>Symbol:</b> {symbol}",
+                f"<b>Price:</b> {price_str}",
                 f"<b>Stage:</b> {stage_emoji} {stage}",
                 f"<b>Score:</b> {score:.1f}/100",
-                f"<b>Confidence:</b> {confidence:.1f}%", f"",
-                f"━━━ <b>30 KPI ANALYSIS</b> ━━━"
+                f"<b>Confidence:</b> {confidence:.1f}%", "",
+                "\u2501\u2501\u2501 <b>30 KPI ANALYSIS</b> \u2501\u2501\u2501"
             ]
 
             kpi_items = [("RSI", features.get("rsi", 0)),
@@ -741,42 +751,60 @@ def api_analyze_to_telegram(symbol):
                          ("Candle Proj", features.get("candle_proj", 0))]
 
             for name, val in kpi_items:
-                bar = "█" * int(val * 10) + "░" * (10 - int(val * 10))
+                bar_filled = int(val * 10)
+                bar = "\u2588" * bar_filled + "\u2591" * (10 - bar_filled)
                 pct = val * 100
-                emoji = "🟢" if pct >= 60 else "🟡" if pct >= 40 else "🔴"
-                msg_lines.append(f"{emoji} {name}: {bar} {pct:.0f}%")
+                indicator = "\U0001F7E2" if pct >= 60 else "\U0001F7E1" if pct >= 40 else "\U0001F534"
+                msg_lines.append(f"{indicator} {name}: {bar} {pct:.0f}%")
 
             if reasons:
                 msg_lines.append("")
-                msg_lines.append("━━━ <b>SIGNALS</b> ━━━")
+                msg_lines.append("\u2501\u2501\u2501 <b>SIGNALS</b> \u2501\u2501\u2501")
                 for reason in reasons[:5]:
-                    msg_lines.append(f"✅ {reason}")
+                    msg_lines.append(f"\u2705 {reason}")
 
             fmt = lambda v: f"${v:.8f}" if price < 1 else f"${v:.4f}"
             msg_lines.extend([
-                "", f"━━━ <b>TRADE LEVELS</b> ━━━",
-                f"🎯 Entry (Market): {fmt(price)}",
-                f"📍 Limit Entry: {fmt(analysis.get('buy_anchor', price))}",
-                f"🛑 Stop Loss: {fmt(analysis.get('stop_loss', 0))}",
-                f"💰 Take Profit: {fmt(analysis.get('take_profit', 0))}", "",
-                f"⏰ {format_la_time()}"
+                "", "\u2501\u2501\u2501 <b>TRADE LEVELS</b> \u2501\u2501\u2501",
+                f"\U0001F3AF Entry (Market): {fmt(price)}",
+                f"\U0001F4CD Limit Entry: {fmt(analysis.get('buy_anchor', price))}",
+                f"\U0001F6D1 Stop Loss: {fmt(analysis.get('stop_loss', 0))}",
+                f"\U0001F4B0 Take Profit: {fmt(analysis.get('take_profit', 0))}", "",
+                f"\u23F0 {format_la_time()}"
             ])
 
-            message = "\n".join(msg_lines)
-            await telegram.send_message(message,
-                                        alert_type="analysis",
-                                        urgent=True)
-
-            return {"success": True, "message": "Analysis sent to Telegram"}
+            return {"message": "\n".join(msg_lines)}
         except Exception as e:
             return {"error": str(e)}
+        finally:
+            if tg_exchange:
+                try:
+                    await tg_exchange.disconnect()
+                except Exception:
+                    pass
 
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(send_analysis())
+        result = loop.run_until_complete(build_analysis())
         loop.close()
-        return jsonify(result), 200
+
+        if "error" in result:
+            return jsonify(result), 500
+
+        resp = req.post(
+            f"https://api.telegram.org/bot{telegram_token}/sendMessage",
+            json={
+                "chat_id": telegram_chat_id,
+                "text": result["message"],
+                "parse_mode": "HTML"
+            },
+            timeout=15
+        )
+        if resp.status_code == 200:
+            return jsonify({"success": True, "message": "Analysis sent to Telegram"}), 200
+        else:
+            return jsonify({"error": f"Telegram API error: {resp.status_code}"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

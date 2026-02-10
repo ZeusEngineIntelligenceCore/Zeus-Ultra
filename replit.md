@@ -67,6 +67,13 @@ Zeus is built around a modular architecture with a core trading engine supported
 - **Continuous Trading**: Designed for day trading with continuous market and position scanning.
 - **Alerts**: Real-time Telegram alerts for trade open/close notifications, with an adaptive learning engine.
 
+## Recent Changes
+- **2026-02-10**: Fixed critical asyncio event loop conflict - coin analyzer and Telegram analysis endpoints now always create standalone exchange instances to avoid cross-thread Lock errors when the bot runs in a background thread
+- **2026-02-10**: Telegram analysis send now uses direct HTTP requests to Telegram API instead of bot's async objects, preventing cross-event-loop failures
+- **2026-02-10**: Proper Unicode emoji encoding in Telegram analysis messages
+- **2026-02-10**: Security dependency updates: aiohttp 3.13.3, Flask 3.1.2, gunicorn 24.1.1, werkzeug 3.1.5
+- **2026-02-10**: Production workflow configured with gunicorn WSGI server on port 5000
+
 ## External Dependencies
 - **Kraken API**: For cryptocurrency exchange operations (KRAKEN_API_KEY, KRAKEN_API_SECRET).
 - **Telegram Bot API**: For real-time notifications and interactive commands (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).
