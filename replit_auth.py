@@ -31,7 +31,7 @@ REPL_ID = os.environ.get('REPL_ID', '')
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(user_id)
+    return db.session.get(User, user_id)
 
 
 class UserSessionStorage(BaseStorage):

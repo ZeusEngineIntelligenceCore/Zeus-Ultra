@@ -100,7 +100,7 @@ class FearGreedIndexFetcher:
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.API_URL, timeout=10) as response:
+                async with session.get(self.API_URL, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status == 200:
                         data = await response.json()
                         
