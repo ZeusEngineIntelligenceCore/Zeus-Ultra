@@ -63,7 +63,10 @@ def format_la_time(dt=None):
 @app.route("/")
 def index():
     try:
-        return render_template("index.html", user=None, bot_status=bot_status, current_time=format_la_time())
+        return render_template("index.html",
+                               user=None,
+                               bot_status=bot_status,
+                               current_time=format_la_time())
     except Exception as e:
         return f"""
         <html><head><title>Zeus Trading Bot</title></head>
@@ -88,7 +91,7 @@ def status():
     with bot_lock:
         status_copy = bot_status.copy()
         status_copy["current_time"] = format_la_time()
-        
+
         state_loaded = False
         if bot_instance and bot_instance.running:
             try:
@@ -96,14 +99,20 @@ def status():
                 stats = state.get("stats", {})
                 holdings = state.get("holdings", {})
                 status_copy["balance"] = stats.get("equity", 0)
-                status_copy["holdings_count"] = len([k for k, v in holdings.items() if k not in ("USD", "ZUSD", "USDT", "USDC") and v > 0.0001])
-                status_copy["active_trades"] = len(state.get("active_trades", {}))
-                status_copy["candidates_count"] = len(state.get("candidates", []))
+                status_copy["holdings_count"] = len([
+                    k for k, v in holdings.items()
+                    if k not in ("USD", "ZUSD", "USDT", "USDC") and v > 0.0001
+                ])
+                status_copy["active_trades"] = len(
+                    state.get("active_trades", {}))
+                status_copy["candidates_count"] = len(
+                    state.get("candidates", []))
                 status_copy["total_profit"] = stats.get("total_pnl", 0)
                 status_copy["cycle_count"] = state.get("cycle_count", 0)
                 status_copy["wins"] = stats.get("wins", 0)
                 status_copy["losses"] = stats.get("losses", 0)
-                status_copy["mode"] = stats.get("mode", status_copy.get("mode", "UNKNOWN"))
+                status_copy["mode"] = stats.get(
+                    "mode", status_copy.get("mode", "UNKNOWN"))
                 if hasattr(bot_instance, 'alt_data') and bot_instance.alt_data:
                     fg = bot_instance.alt_data.get_fear_greed()
                     if fg:
@@ -114,7 +123,7 @@ def status():
                 state_loaded = True
             except Exception:
                 pass
-        
+
         if not state_loaded:
             try:
                 state_file = Path("data/bot_state.json")
@@ -123,16 +132,23 @@ def status():
                         data = json.load(f)
                     status_copy["balance"] = round(data.get("equity", 0), 2)
                     holdings = data.get("holdings", {})
-                    status_copy["holdings_count"] = len([k for k, v in holdings.items() if k not in ("USD", "ZUSD", "USDT", "USDC") and v > 0.0001])
-                    status_copy["active_trades"] = len(data.get("active_trades", {}))
-                    status_copy["total_profit"] = round(data.get("total_pnl", 0), 2)
+                    status_copy["holdings_count"] = len([
+                        k for k, v in holdings.items()
+                        if k not in ("USD", "ZUSD", "USDT",
+                                     "USDC") and v > 0.0001
+                    ])
+                    status_copy["active_trades"] = len(
+                        data.get("active_trades", {}))
+                    status_copy["total_profit"] = round(
+                        data.get("total_pnl", 0), 2)
                     status_copy["wins"] = data.get("wins", 0)
                     status_copy["losses"] = data.get("losses", 0)
                     config = data.get("config", {})
-                    status_copy["mode"] = config.get("mode", status_copy.get("mode", "UNKNOWN"))
+                    status_copy["mode"] = config.get(
+                        "mode", status_copy.get("mode", "UNKNOWN"))
             except Exception:
                 pass
-                
+
     return jsonify(status_copy), 200
 
 
@@ -197,25 +213,26 @@ def api_holdings():
                 holdings_data = data.get("holdings", {})
                 active_trades = data.get("active_trades", {})
         price_cache = {}
-        if bot_instance and hasattr(bot_instance, 'exchange') and bot_instance.exchange:
+        if bot_instance and hasattr(bot_instance,
+                                    'exchange') and bot_instance.exchange:
             price_cache = getattr(bot_instance.exchange, '_ticker_cache', {})
         holdings = []
-        
+
         skip_symbols = {"USD", "ZUSD", "EUR", "ZEUR", "USDT", "USDC", "DAI"}
-        
+
         for symbol, amount in holdings_data.items():
             if symbol in skip_symbols or amount < 0.0001:
                 continue
-            
+
             clean_symbol = symbol
             for prefix in ("X", "Z"):
                 if clean_symbol.startswith(prefix) and len(clean_symbol) > 3:
                     clean_symbol = clean_symbol[1:]
                     break
-            
+
             price = 0.0
             value_usd = 0.0
-            
+
             for pair_suffix in ["USD", "USDT", "USDC"]:
                 cache_key = f"{symbol}{pair_suffix}"
                 if cache_key in price_cache:
@@ -226,17 +243,18 @@ def api_holdings():
                         price = cached.get('last', cached.get('price', 0))
                     if price > 0:
                         break
-            
+
             if price == 0:
                 for trade_id, trade in active_trades.items():
                     trade_symbol = trade.get("symbol", "")
-                    if trade_symbol.startswith(symbol) or trade_symbol.startswith(clean_symbol):
+                    if trade_symbol.startswith(
+                            symbol) or trade_symbol.startswith(clean_symbol):
                         price = trade.get("entry_price", 0)
                         if price > 0:
                             break
-            
+
             value_usd = amount * price if price > 0 else 0
-            
+
             holdings.append({
                 "symbol": symbol,
                 "amount": amount,
@@ -244,14 +262,18 @@ def api_holdings():
                 "value_usd": value_usd,
                 "pnl_pct": 0
             })
-        
+
         holdings.sort(key=lambda x: x.get("value_usd", 0), reverse=True)
-        return jsonify({"holdings": holdings[:20], "count": len(holdings)}), 200
+        return jsonify({
+            "holdings": holdings[:20],
+            "count": len(holdings)
+        }), 200
     except Exception as e:
         return jsonify({"holdings": [], "error": str(e)}), 200
 
 
 recent_logs = []
+
 
 @app.route("/api/logs")
 def api_logs():
@@ -274,7 +296,10 @@ def api_candidates():
     try:
         state = bot_instance.get_status()
         candidates = state.get("candidates", [])[:20]
-        return jsonify({"candidates": candidates, "count": len(candidates)}), 200
+        return jsonify({
+            "candidates": candidates,
+            "count": len(candidates)
+        }), 200
     except Exception as e:
         return jsonify({"candidates": [], "error": str(e)}), 200
 
@@ -288,17 +313,26 @@ def toggle_bot():
                 bot_instance.running = False
             bot_status["running"] = False
             bot_status["uptime_start"] = None
-            return jsonify({"status": "stopped", "message": "Bot stopped"}), 200
+            return jsonify({
+                "status": "stopped",
+                "message": "Bot stopped"
+            }), 200
         else:
             bot_thread = threading.Thread(target=run_trading_bot, daemon=True)
             bot_thread.start()
-            return jsonify({"status": "starting", "message": "Bot starting..."}), 200
+            return jsonify({
+                "status": "starting",
+                "message": "Bot starting..."
+            }), 200
 
 
 @app.route("/dashboard")
 def dashboard():
     try:
-        return render_template("dashboard.html", user=None, bot_status=bot_status, current_time=format_la_time())
+        return render_template("dashboard.html",
+                               user=None,
+                               bot_status=bot_status,
+                               current_time=format_la_time())
     except Exception:
         return f"""
         <html><head><title>Zeus Dashboard</title>
@@ -337,121 +371,169 @@ def dashboard():
 @app.route("/api/analyze/<symbol>")
 def api_analyze_coin(symbol):
     if not bot_instance:
-        return jsonify({"error": "Bot not running - please start the bot first"}), 503
-    
+        return jsonify(
+            {"error": "Bot not running - please start the bot first"}), 503
+
     symbol = symbol.upper().strip()
     if not symbol.endswith("USD"):
         symbol = f"{symbol}USD"
-    
+
     async def find_valid_pair(exchange, base_symbol):
         markets = await exchange.fetch_markets()
         if not markets:
             return base_symbol
-        
+
         base = base_symbol.replace("USD", "")
-        possible_names = [base_symbol, f"X{base}ZUSD", f"X{base}USD", f"{base}ZUSD"]
-        
+        possible_names = [
+            base_symbol, f"X{base}ZUSD", f"X{base}USD", f"{base}ZUSD"
+        ]
+
         for name in possible_names:
             if name in markets:
                 return name
-        
+
         for pair_name in markets.keys():
             if pair_name.upper().endswith("USD"):
-                pair_base = pair_name.replace("USD", "").replace("ZUSD", "").lstrip("X")
+                pair_base = pair_name.replace("USD",
+                                              "").replace("ZUSD",
+                                                          "").lstrip("X")
                 if pair_base.upper() == base.upper():
                     return pair_name
-        
+
         return base_symbol
-    
+
     async def run_analysis():
         nonlocal symbol
         try:
             exchange = bot_instance.exchange
             prebreakout = bot_instance.prebreakout
             math_kernel = prebreakout.math
-            
+
             valid_symbol = await find_valid_pair(exchange, symbol)
             symbol = valid_symbol
-            
+
             timeframes = {"5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
             all_analysis = {}
-            
+
             for tf_name, tf_minutes in timeframes.items():
                 try:
-                    ohlcv = await exchange.fetch_ohlcv(symbol, tf_name, limit=500)
+                    ohlcv = await exchange.fetch_ohlcv(symbol,
+                                                       tf_name,
+                                                       limit=500)
                     if not ohlcv or len(ohlcv) < 50:
                         continue
-                    
+
                     high = [c.high for c in ohlcv]
                     low = [c.low for c in ohlcv]
                     close = [c.close for c in ohlcv]
                     volume = [c.volume for c in ohlcv]
-                    
-                    analysis = await prebreakout.analyze(symbol, high, low, close, volume)
-                    
+
+                    analysis = await prebreakout.analyze(
+                        symbol, high, low, close, volume)
+
                     rsi = math_kernel.rsi(close)
                     macd_line, signal_line, macd_hist = math_kernel.macd(close)
-                    bb_upper, bb_mid, bb_lower = math_kernel.bollinger_bands(close)
+                    bb_upper, bb_mid, bb_lower = math_kernel.bollinger_bands(
+                        close)
                     atr = math_kernel.atr(high, low, close)
                     stoch_k, stoch_d = math_kernel.stochastic_rsi(close)
                     ema9 = math_kernel.ema(close, 9)
                     ema20 = math_kernel.ema(close, 20)
                     ema50 = math_kernel.ema(close, 50)
                     sma200 = math_kernel.sma(close, 200)
-                    adx_val, plus_di, minus_di = math_kernel.adx(high, low, close)
-                    
+                    adx_val, plus_di, minus_di = math_kernel.adx(
+                        high, low, close)
+
                     analysis["technical_indicators"] = {
-                        "rsi": round(rsi, 2),
-                        "macd": round(macd_line, 8),
-                        "macd_signal": round(signal_line, 8),
-                        "macd_histogram": round(macd_hist, 8),
-                        "bb_upper": round(bb_upper, 8),
-                        "bb_middle": round(bb_mid, 8),
-                        "bb_lower": round(bb_lower, 8),
-                        "bb_position": round((close[-1] - bb_lower) / (bb_upper - bb_lower) * 100, 2) if (bb_upper - bb_lower) > 0 else 50,
-                        "atr": round(atr, 8),
-                        "atr_pct": round(atr / close[-1] * 100, 2) if close[-1] > 0 else 0,
-                        "stoch_k": round(stoch_k, 2),
-                        "stoch_d": round(stoch_d, 2),
-                        "ema_9": round(ema9, 8),
-                        "ema_20": round(ema20, 8),
-                        "ema_50": round(ema50, 8),
-                        "sma_200": round(sma200, 8),
-                        "adx": round(adx_val, 2),
-                        "plus_di": round(plus_di, 2),
-                        "minus_di": round(minus_di, 2)
+                        "rsi":
+                        round(rsi, 2),
+                        "macd":
+                        round(macd_line, 8),
+                        "macd_signal":
+                        round(signal_line, 8),
+                        "macd_histogram":
+                        round(macd_hist, 8),
+                        "bb_upper":
+                        round(bb_upper, 8),
+                        "bb_middle":
+                        round(bb_mid, 8),
+                        "bb_lower":
+                        round(bb_lower, 8),
+                        "bb_position":
+                        round((close[-1] - bb_lower) / (bb_upper - bb_lower) *
+                              100, 2) if (bb_upper - bb_lower) > 0 else 50,
+                        "atr":
+                        round(atr, 8),
+                        "atr_pct":
+                        round(atr / close[-1] *
+                              100, 2) if close[-1] > 0 else 0,
+                        "stoch_k":
+                        round(stoch_k, 2),
+                        "stoch_d":
+                        round(stoch_d, 2),
+                        "ema_9":
+                        round(ema9, 8),
+                        "ema_20":
+                        round(ema20, 8),
+                        "ema_50":
+                        round(ema50, 8),
+                        "sma_200":
+                        round(sma200, 8),
+                        "adx":
+                        round(adx_val, 2),
+                        "plus_di":
+                        round(plus_di, 2),
+                        "minus_di":
+                        round(minus_di, 2)
                     }
-                    
-                    price_change_24h = ((close[-1] - close[-min(24, len(close))]) / close[-min(24, len(close))]) * 100 if len(close) > 24 else 0
+
+                    price_change_24h = (
+                        (close[-1] - close[-min(24, len(close))]) /
+                        close[-min(24, len(close))]) * 100 if len(
+                            close) > 24 else 0
                     high_24h = max(high[-min(24, len(high)):])
                     low_24h = min(low[-min(24, len(low)):])
-                    avg_volume = sum(volume[-20:]) / 20 if len(volume) >= 20 else sum(volume) / len(volume)
+                    avg_volume = sum(volume[-20:]) / 20 if len(
+                        volume) >= 20 else sum(volume) / len(volume)
                     current_volume = volume[-1] if volume else 0
-                    
+
                     analysis["market_data"] = {
-                        "current_price": round(close[-1], 8),
-                        "price_change_24h": round(price_change_24h, 2),
-                        "high_24h": round(high_24h, 8),
-                        "low_24h": round(low_24h, 8),
-                        "current_volume": round(current_volume, 2),
-                        "avg_volume": round(avg_volume, 2),
-                        "volume_ratio": round(current_volume / avg_volume, 2) if avg_volume > 0 else 0
+                        "current_price":
+                        round(close[-1], 8),
+                        "price_change_24h":
+                        round(price_change_24h, 2),
+                        "high_24h":
+                        round(high_24h, 8),
+                        "low_24h":
+                        round(low_24h, 8),
+                        "current_volume":
+                        round(current_volume, 2),
+                        "avg_volume":
+                        round(avg_volume, 2),
+                        "volume_ratio":
+                        round(current_volume /
+                              avg_volume, 2) if avg_volume > 0 else 0
                     }
-                    
+
                     all_analysis[tf_name] = analysis
                 except Exception as e:
                     all_analysis[tf_name] = {"error": str(e)}
-            
+
             if not all_analysis:
                 return {"error": f"Could not fetch data for {symbol}"}
-            
-            valid_analyses = {k: v for k, v in all_analysis.items() if "error" not in v and v.get("current_price", 0) > 0}
-            
+
+            valid_analyses = {
+                k: v
+                for k, v in all_analysis.items()
+                if "error" not in v and v.get("current_price", 0) > 0
+            }
+
             if not valid_analyses:
                 return {"error": f"Failed to fetch data for {symbol}"}
-            
-            primary_tf = valid_analyses.get("15m") or valid_analyses.get("1h") or list(valid_analyses.values())[0]
-            
+
+            primary_tf = valid_analyses.get("15m") or valid_analyses.get(
+                "1h") or list(valid_analyses.values())[0]
+
             return {
                 "symbol": symbol,
                 "timestamp": format_la_time(),
@@ -461,7 +543,7 @@ def api_analyze_coin(symbol):
             }
         except Exception as e:
             return {"error": str(e)}
-    
+
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -485,12 +567,12 @@ def api_pairs():
 
 def run_trading_bot():
     global bot_instance
-    
+
     async def start_bot():
         global bot_instance
-        
+
         from src.zeus.core.bot import ZeusBot
-        
+
         print("=" * 60)
         print("  ZEUS AUTONOMOUS TRADING BOT")
         print("  Raspberry Pi 5 Edition")
@@ -516,13 +598,11 @@ def run_trading_bot():
             bot_status["error"] = None
 
         try:
-            bot_instance = ZeusBot(
-                kraken_key=kraken_key,
-                kraken_secret=kraken_secret,
-                telegram_token=telegram_token,
-                telegram_chat_id=telegram_chat_id,
-                mode=mode
-            )
+            bot_instance = ZeusBot(kraken_key=kraken_key,
+                                   kraken_secret=kraken_secret,
+                                   telegram_token=telegram_token,
+                                   telegram_chat_id=telegram_chat_id,
+                                   mode=mode)
             await bot_instance.run_forever()
         except Exception as e:
             with bot_lock:
@@ -538,13 +618,14 @@ def run_trading_bot():
 def run_server():
     port = int(os.environ.get("PORT", 5000))
     host = "0.0.0.0"
-    
+
     print(f"[SERVER] Starting server on {host}:{port}")
-    
+
     try:
         from gunicorn.app.base import BaseApplication
 
         class GunicornApp(BaseApplication):
+
             def __init__(self, application, options=None):
                 self.options = options or {}
                 self.application = application
@@ -567,12 +648,15 @@ def run_server():
             'errorlog': '-',
             'loglevel': 'info'
         }
-        
+
         print("[SERVER] Using Gunicorn production server")
         GunicornApp(app, options).run()
     except ImportError:
-        print("[SERVER] Gunicorn not available, using Flask development server")
-        print("[SERVER] Install gunicorn for production use: pip install gunicorn")
+        print(
+            "[SERVER] Gunicorn not available, using Flask development server")
+        print(
+            "[SERVER] Install gunicorn for production use: pip install gunicorn"
+        )
         app.run(host=host, port=port, threaded=True, debug=False)
 
 
@@ -580,14 +664,14 @@ if __name__ == "__main__":
     # Create required directories
     Path("data").mkdir(exist_ok=True)
     Path("logs").mkdir(exist_ok=True)
-    
+
     print("[ZEUS] Starting Zeus Trading Bot...")
     print(f"[ZEUS] Project root: {PROJECT_ROOT}")
-    
+
     # Start trading bot in background thread
     bot_thread = threading.Thread(target=run_trading_bot, daemon=True)
     bot_thread.start()
     print("[BOT] Trading bot started in background thread")
-    
+
     # Start web server
     run_server()
