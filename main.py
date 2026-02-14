@@ -529,6 +529,14 @@ def api_analyze_coin(symbol):
                     analysis = await prebreakout.analyze(
                         symbol, high, low, close, volume)
 
+                    analysis["data_info"] = {
+                        "candle_count": len(ohlcv),
+                        "timeframe": tf_name,
+                        "first_candle": ohlcv[0].timestamp if hasattr(ohlcv[0], 'timestamp') else None,
+                        "last_candle": ohlcv[-1].timestamp if hasattr(ohlcv[-1], 'timestamp') else None,
+                        "source": "Kraken Live API"
+                    }
+
                     rsi = math_kernel.rsi(close)
                     analysis["technical_indicators"] = {"rsi": round(rsi, 2)}
                     try:

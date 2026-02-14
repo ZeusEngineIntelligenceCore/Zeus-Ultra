@@ -142,6 +142,8 @@ class BreakoutConfig:
 
 
 class PreBreakoutDetector:
+    MAX_INDICATOR = 0.78
+
     def __init__(self, config: Optional[BreakoutConfig] = None):
         self.cfg = config or BreakoutConfig()
         self.math = MathKernel()
@@ -1099,7 +1101,7 @@ class PreBreakoutDetector:
             "volume_profile", "seller_exhaustion", "absorption_detection",
             "relative_volume"
         ]
-        feats = {k: round(v, 4) for k, v in zip(names, tasks)}
+        feats = {k: round(min(v, self.MAX_INDICATOR), 4) for k, v in zip(names, tasks)}
         if order_book:
             imbalance = order_book.get("imbalance", 0)
             spread_pct = order_book.get("spread_pct", 0)
@@ -1114,7 +1116,7 @@ class PreBreakoutDetector:
                 book_score = min(1.0, book_score * 1.1)
             if bid_depth > 0 and ask_depth > 0 and bid_depth > ask_depth * 1.5:
                 book_score = min(1.0, book_score * 1.15)
-            feats["real_book_imbalance"] = round(book_score, 4)
+            feats["real_book_imbalance"] = round(min(book_score, self.MAX_INDICATOR), 4)
         weights = dict(self.cfg.weights or {})
         if "real_book_imbalance" in feats:
             weights["real_book_imbalance"] = 0.04
@@ -1208,54 +1210,14 @@ class PreBreakoutDetector:
         min_take_profit_distance = close[-1] * 0.04
         take_profit = close[-1] + max(3.0 * effective_atr, min_take_profit_distance)
         reasons = []
-        if feats["squeeze"] > 0.7:
-            reasons.append("TTM Squeeze Building")
-        if feats["impulse"] > 0.6:
-            reasons.append("Strong Momentum Impulse")
-        if feats["momentum_cf"] > 0.6:
-            reasons.append("Bullish Momentum Confirmation")
-        if feats["anomaly_vol"] > 0.6:
-            reasons.append("Volume Anomaly Detected")
-        if feats["microtrend"] > 0.6:
-            reasons.append("Strong Micro-Trend")
-        if feats["consistency"] > 0.6:
-            reasons.append("Consistent Price Action")
-        if feats.get("supertrend_conf", 0) > 0.7:
-            reasons.append("Supertrend Bullish Confirmation")
-        if feats.get("adx_strength", 0) > 0.65:
-            reasons.append("Strong ADX Trend")
-        if feats.get("aroon_signal", 0) > 0.75:
-            reasons.append("Aroon Breakout Signal")
-        if feats.get("vortex_signal", 0) > 0.65:
-            reasons.append("Vortex Bullish Crossover")
-        if feats.get("linreg_trend", 0) > 0.7:
-            reasons.append("Strong Linear Trend")
-        if feats.get("choppiness", 0) > 0.7:
-            reasons.append("Low Choppiness - Trending")
-        if feats.get("elder_power", 0) > 0.7:
-            reasons.append("Elder Ray Bull Power")
-        if feats.get("klinger_signal", 0) > 0.7:
-            reasons.append("Klinger Volume Confirmation")
-        if feats.get("bid_ask_imbalance", 0) > 0.65:
-            reasons.append("Strong Bid-Ask Imbalance (Buyers)")
-        if feats.get("order_flow_momentum", 0) > 0.65:
-            reasons.append("Positive Order Flow Momentum")
-        if feats.get("volatility_regime", 0) > 0.7:
-            reasons.append("Low Volatility Regime (Consolidation)")
-        if feats.get("price_acceleration", 0) > 0.65:
-            reasons.append("Price Acceleration Detected")
-        if feats.get("volume_weighted_momentum", 0) > 0.65:
-            reasons.append("Volume-Weighted Momentum Bullish")
-        if feats.get("market_depth_score", 0) > 0.7:
-            reasons.append("Strong Market Depth")
-        if feats.get("trend_strength_index", 0) > 0.65:
-            reasons.append("High Trend Strength Index")
-        if feats.get("reversal_probability", 0) > 0.75:
-            reasons.append("High Reversal Probability (Oversold)")
-        if feats.get("breakout_velocity", 0) > 0.7:
-            reasons.append("High Breakout Velocity")
-        if feats.get("liquidity_adjusted_momentum", 0) > 0.65:
-            reasons.append("Liquidity-Adjusted Momentum Signal")
+        is_overbought = rsi_val > 65
+        is_extended = False
+        if len(close) >= 20:
+            recent_move_check = (close[-1] - min(close[-20:])) / (min(close[-20:]) + 1e-9)
+            is_extended = recent_move_check > 0.07
+
+        show_momentum_signals = not is_overbought and not is_extended and prebreakout_score >= 40
+
         if feats.get("range_contraction", 0) > 0.7:
             reasons.append("Range Contraction (Coiling)")
         if feats.get("higher_lows", 0) > 0.7:
@@ -1264,23 +1226,61 @@ class PreBreakoutDetector:
             reasons.append("OBV Divergence (Smart Money Accumulation)")
         if feats.get("volume_accumulation", 0) > 0.7:
             reasons.append("Volume Accumulation Pattern")
-        if feats.get("resistance_proximity", 0) > 0.75:
+        if feats.get("resistance_proximity", 0) > 0.7:
             reasons.append("Near Resistance (Breakout Zone)")
         if feats.get("volume_profile", 0) > 0.7:
-            reasons.append("Volume Profile: Low Resistance Above (Clear Path)")
+            reasons.append("Volume Profile: Low Resistance Above")
         if feats.get("seller_exhaustion", 0) > 0.7:
-            reasons.append("Seller Exhaustion: Selling Pressure Drying Up")
+            reasons.append("Seller Exhaustion Detected")
         if feats.get("absorption_detection", 0) > 0.7:
-            reasons.append("Absorption: Large Buyers Defending Support")
+            reasons.append("Absorption: Buyers Defending Support")
         if feats.get("relative_volume", 0) > 0.7:
-            reasons.append("Relative Volume Surge (vs Historical)")
-        if feats.get("real_book_imbalance", 0) > 0.7:
-            reasons.append("Order Book: Strong Buy-Side Imbalance (Live)")
-        if rsi_val > 70:
-            reasons.append(f"WARNING: RSI Overbought ({rsi_val:.0f}) - Already Extended")
+            reasons.append("Relative Volume Surge")
+        if feats["squeeze"] > 0.7:
+            reasons.append("TTM Squeeze Building")
+        if feats.get("volatility_regime", 0) > 0.7:
+            reasons.append("Low Volatility Regime (Consolidation)")
+        if feats.get("choppiness", 0) > 0.7:
+            reasons.append("Low Choppiness - Trending")
+        if feats.get("consistency") and feats["consistency"] > 0.65:
+            reasons.append("Consistent Price Action")
+
+        if show_momentum_signals:
+            if feats["impulse"] > 0.6:
+                reasons.append("Momentum Impulse")
+            if feats["momentum_cf"] > 0.6:
+                reasons.append("Momentum Confirmation")
+            if feats.get("supertrend_conf", 0) > 0.65:
+                reasons.append("Supertrend Bullish")
+            if feats.get("adx_strength", 0) > 0.6:
+                reasons.append("ADX Trend Strength")
+            if feats.get("vortex_signal", 0) > 0.6:
+                reasons.append("Vortex Bullish")
+            if feats.get("elder_power", 0) > 0.65:
+                reasons.append("Elder Bull Power")
+            if feats.get("klinger_signal", 0) > 0.65:
+                reasons.append("Klinger Volume Flow")
+            if feats.get("order_flow_momentum", 0) > 0.6:
+                reasons.append("Order Flow Momentum")
+            if feats.get("price_acceleration", 0) > 0.6:
+                reasons.append("Price Acceleration")
+            if feats.get("volume_weighted_momentum", 0) > 0.6:
+                reasons.append("Volume-Weighted Momentum")
+            if feats.get("liquidity_adjusted_momentum", 0) > 0.6:
+                reasons.append("Liquidity-Adjusted Momentum")
+            if feats.get("breakout_velocity", 0) > 0.65:
+                reasons.append("Breakout Velocity")
+
+        if rsi_val > 75:
+            reasons.append(f"WARNING: RSI Strongly Overbought ({rsi_val:.0f}) - Extended")
+        elif rsi_val > 70:
+            reasons.append(f"WARNING: RSI Overbought ({rsi_val:.0f}) - Caution")
+        elif rsi_val > 65:
+            reasons.append(f"CAUTION: RSI Elevated ({rsi_val:.0f})")
         if len(close) >= 20:
-            recent_move_check = (close[-1] - min(close[-20:])) / (min(close[-20:]) + 1e-9)
-            if recent_move_check > 0.10:
+            if not is_extended:
+                recent_move_check = (close[-1] - min(close[-20:])) / (min(close[-20:]) + 1e-9)
+            if is_extended:
                 reasons.append(f"WARNING: Already moved +{recent_move_check*100:.1f}% recently")
         strong_bullish = sum(1 for v in all_feat_values if v >= 0.7)
         strong_bearish = sum(1 for v in all_feat_values if v <= 0.3)

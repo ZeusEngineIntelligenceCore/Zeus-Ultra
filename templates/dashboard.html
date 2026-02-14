@@ -936,15 +936,26 @@
                             <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Entry (Market):</span> <span style="font-family: monospace;">$${formatPrice(price)}</span></div>
                             <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Limit Entry:</span> <span style="font-family: monospace; color: #9f7aea;">$${formatPrice(analysis.buy_anchor || price)}</span></div>
                             <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Stop Loss:</span> <span style="font-family: monospace; color: #f56565;">$${formatPrice(analysis.stop_loss || 0)}</span></div>
-                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Take Profit:</span> <span style="font-family: monospace; color: #48bb78;">$${formatPrice(analysis.take_profit || 0)}</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Take Profit:</span> <span style="font-family: monospace; color: #48bb78;">$${formatPrice(analysis.take_profit || 0)} (+${price > 0 ? (((analysis.take_profit - price) / price) * 100).toFixed(1) : '0'}%)</span></div>
                         </div>
                     </div>
+                </div>
+                <div style="background: rgba(159,122,234,0.1); border-radius: 0.5rem; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; border: 1px solid rgba(159,122,234,0.2); font-size: 0.75rem; color: #a0aec0;">
+                    <span style="color: #9f7aea; font-weight: 600;">Data Source:</span> Kraken Live API |
+                    <span style="color: #9f7aea;">Candles:</span> ${analysis.data_info ? analysis.data_info.candle_count : '500'} |
+                    <span style="color: #9f7aea;">Timeframes:</span> ${data.timeframes ? Object.keys(data.timeframes).join(', ') : 'N/A'} |
+                    <span style="color: #9f7aea;">KPIs:</span> ${analysis.kpi_count || 49} per timeframe
                 </div>
                 ${reasons.length > 0 ? `
                     <div style="background: rgba(72,187,120,0.1); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid rgba(72,187,120,0.2);">
                         <div style="font-size: 0.75rem; font-weight: 600; color: #48bb78; margin-bottom: 0.5rem;">Active Signals</div>
                         <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                            ${reasons.map(r => `<span style="font-size: 0.75rem; background: rgba(72,187,120,0.2); padding: 0.25rem 0.5rem; border-radius: 0.25rem;">${escapeHtml(r)}</span>`).join('')}
+                            ${reasons.map(r => {
+                                const isWarning = r.startsWith('WARNING') || r.startsWith('CAUTION');
+                                const bg = isWarning ? 'rgba(245,101,101,0.2)' : 'rgba(72,187,120,0.2)';
+                                const clr = isWarning ? 'color: #f56565;' : '';
+                                return `<span style="font-size: 0.75rem; background: ${bg}; padding: 0.25rem 0.5rem; border-radius: 0.25rem; ${clr}">${escapeHtml(r)}</span>`;
+                            }).join('')}
                         </div>
                     </div>
                 ` : ''}

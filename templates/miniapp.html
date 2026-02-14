@@ -481,7 +481,10 @@
                     ${reasons.length > 0 ? `
                         <div class="signals-section">
                             <div class="kpi-title">Active Signals</div>
-                            ${reasons.map(r => `<div class="signal-item"><span class="signal-emoji">✅</span>${r}</div>`).join('')}
+                            ${reasons.map(r => {
+                                const isWarn = r.startsWith('WARNING') || r.startsWith('CAUTION');
+                                return `<div class="signal-item"><span class="signal-emoji">${isWarn ? '⚠️' : '✅'}</span>${r}</div>`;
+                            }).join('')}
                         </div>
                     ` : ''}
 
