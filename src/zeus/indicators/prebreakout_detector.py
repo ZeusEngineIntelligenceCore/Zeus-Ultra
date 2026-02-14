@@ -262,10 +262,10 @@ class PreBreakoutDetector:
     async def squeeze_pressure(self, high: List[float], low: List[float], close: List[float]) -> float:
         squeeze_on, momentum, bb_width = self.math.ttm_squeeze(high, low, close)
         if squeeze_on:
-            return 0.9 if momentum > 0 else 0.7
+            return 0.85 if momentum > 0 else 0.65
         elif momentum > 0:
-            return 0.6
-        return 0.3
+            return 0.50
+        return 0.25
 
     def calculate_atr(self, prices: List[float]) -> float:
         if len(prices) < 3:
@@ -406,18 +406,28 @@ class PreBreakoutDetector:
         if upper - lower < 1e-9:
             return 0.5
         position = (close[-1] - lower) / (upper - lower)
-        if position > 0.8:
-            return clip01(0.7 + (position - 0.8) * 1.5)
-        elif position < 0.2:
-            return clip01(0.8 + (0.2 - position) * 1.0)
-        return clip01(position)
+        if position > 0.95:
+            return clip01(0.25)
+        elif position > 0.85:
+            return clip01(0.40)
+        elif position > 0.65:
+            return clip01(0.60)
+        elif position < 0.15:
+            return clip01(0.35)
+        elif position < 0.35:
+            return clip01(0.45)
+        return clip01(0.50 + (position - 0.35) * 0.3)
 
     async def cci_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
         cci = self.math.cci(high, low, close)
         if cci < -100:
-            return clip01(0.85 + (abs(cci) - 100) / 400)
+            return clip01(0.55)
+        elif cci > 200:
+            return clip01(0.15)
         elif cci > 100:
-            return clip01(0.25 - (cci - 100) / 400)
+            return clip01(0.30 - (cci - 100) / 500)
+        elif cci > 0:
+            return clip01(0.5 + cci / 300)
         return clip01(0.5 + cci / 400)
 
     async def williams_r_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
@@ -430,10 +440,12 @@ class PreBreakoutDetector:
             return 0.5
         wr = ((highest - close[-1]) / (highest - lowest)) * -100
         if wr < -80:
-            return clip01(0.85 + (abs(wr) - 80) / 80)
+            return clip01(0.55)
         elif wr > -20:
-            return clip01(0.25 - (wr + 20) / 80)
-        return clip01(0.5 - wr / 200)
+            return clip01(0.30)
+        elif wr > -40:
+            return clip01(0.40)
+        return clip01(0.5 + (wr + 50) / 200)
 
     async def stoch_rsi_signal(self, close: List[float]) -> float:
         rsi_vals = []
@@ -449,10 +461,12 @@ class PreBreakoutDetector:
             return 0.5
         stoch_rsi = (rsi_vals[-1] - lowest_rsi) / (highest_rsi - lowest_rsi) * 100
         if stoch_rsi < 20:
-            return clip01(0.85 + (20 - stoch_rsi) / 40)
+            return clip01(0.55)
         elif stoch_rsi > 80:
-            return clip01(0.25 - (stoch_rsi - 80) / 40)
-        return clip01(stoch_rsi / 100)
+            return clip01(0.25)
+        elif stoch_rsi > 60:
+            return clip01(0.40)
+        return clip01(0.45 + stoch_rsi / 250)
 
     async def mfi_signal(self, high: List[float], low: List[float], close: List[float], volume: List[float]) -> float:
         if len(close) < 15:
@@ -1093,62 +1107,82 @@ class PreBreakoutDetector:
         if "real_book_imbalance" in feats:
             weights["real_book_imbalance"] = 0.04
         raw_score = sum(feats.get(k, 0) * weights.get(k, 0.0) for k in list(feats.keys()))
-        consolidation_signals = sum(1 for k in [
+
+        consolidation_keys = [
             "squeeze", "range_contraction", "higher_lows", "obv_divergence",
             "volume_accumulation", "resistance_proximity", "volatility_regime",
             "consistency", "choppiness",
             "volume_profile", "seller_exhaustion", "absorption_detection"
-        ] if feats.get(k, 0) >= 0.60)
-        momentum_signals = sum(1 for k in [
+        ]
+        momentum_keys = [
             "momentum_cf", "pressure", "impulse",
             "supertrend_conf", "adx_strength", "linreg_trend",
             "breakout_velocity", "trend_strength_index"
-        ] if feats.get(k, 0) >= 0.60)
+        ]
+        consolidation_signals = sum(1 for k in consolidation_keys if feats.get(k, 0) >= 0.65)
+        momentum_signals = sum(1 for k in momentum_keys if feats.get(k, 0) >= 0.65)
+
+        combo_bonus = 0.0
         if consolidation_signals >= 5:
-            raw_score *= self.cfg.momentum_boost * 1.15
+            combo_bonus += 0.20
         elif consolidation_signals >= 4:
-            raw_score *= self.cfg.momentum_boost
+            combo_bonus += 0.14
         elif consolidation_signals >= 3:
-            raw_score *= 1.0 + (self.cfg.momentum_boost - 1.0) * 0.7
+            combo_bonus += 0.08
         elif consolidation_signals >= 2:
-            raw_score *= 1.0 + (self.cfg.momentum_boost - 1.0) * 0.4
+            combo_bonus += 0.04
+
         if feats.get("squeeze", 0) >= 0.7 and feats.get("range_contraction", 0) >= 0.65:
-            raw_score *= self.cfg.early_detection_bonus
+            combo_bonus += 0.06
         if feats.get("higher_lows", 0) >= 0.7 and feats.get("resistance_proximity", 0) >= 0.7:
-            raw_score *= 1.2
+            combo_bonus += 0.05
         if feats.get("obv_divergence", 0) >= 0.75 and feats.get("volume_accumulation", 0) >= 0.7:
-            raw_score *= 1.18
-        if feats.get("choppiness", 0) >= 0.7 and feats.get("volatility_regime", 0) >= 0.65:
-            raw_score *= 1.1
-        if feats.get("squeeze", 0) >= 0.75 and feats.get("higher_lows", 0) >= 0.6:
-            raw_score *= 1.12
+            combo_bonus += 0.05
         if feats.get("seller_exhaustion", 0) >= 0.7 and feats.get("absorption_detection", 0) >= 0.7:
-            raw_score *= 1.20
+            combo_bonus += 0.05
         if feats.get("volume_profile", 0) >= 0.7 and feats.get("range_contraction", 0) >= 0.65:
-            raw_score *= 1.15
+            combo_bonus += 0.04
         if feats.get("seller_exhaustion", 0) >= 0.7 and feats.get("volume_accumulation", 0) >= 0.7 and feats.get("higher_lows", 0) >= 0.6:
-            raw_score *= 1.22
-        if feats.get("absorption_detection", 0) >= 0.75 and feats.get("resistance_proximity", 0) >= 0.7 and feats.get("relative_volume", 0) >= 0.6:
-            raw_score *= 1.18
+            combo_bonus += 0.06
+
+        combo_bonus = min(combo_bonus, 0.30)
+        raw_score = raw_score * (1.0 + combo_bonus)
+
         rsi_val = self.math.rsi(close, self.cfg.rsi_period)
-        if rsi_val > 75:
-            raw_score *= 0.6
+        if rsi_val > 80:
+            raw_score *= 0.30
+        elif rsi_val > 75:
+            raw_score *= 0.45
         elif rsi_val > 70:
-            raw_score *= 0.75
+            raw_score *= 0.55
         elif rsi_val > 65:
-            raw_score *= 0.85
+            raw_score *= 0.75
+        elif rsi_val > 60:
+            raw_score *= 0.90
+
         if len(close) >= 20:
             recent_move = (close[-1] - min(close[-20:])) / (min(close[-20:]) + 1e-9)
-            if recent_move > 0.15:
-                raw_score *= 0.5
+            if recent_move > 0.20:
+                raw_score *= 0.25
+            elif recent_move > 0.15:
+                raw_score *= 0.40
             elif recent_move > 0.10:
-                raw_score *= 0.65
+                raw_score *= 0.55
             elif recent_move > 0.07:
-                raw_score *= 0.8
+                raw_score *= 0.70
+            elif recent_move > 0.05:
+                raw_score *= 0.85
+
         if feats.get("resistance_proximity", 0) < 0.3:
-            raw_score *= 0.7
+            raw_score *= 0.65
         if momentum_signals >= 6 and consolidation_signals < 2:
-            raw_score *= 0.7
+            raw_score *= 0.60
+
+        all_feat_values = [v for v in feats.values() if isinstance(v, (int, float))]
+        bearish_count = sum(1 for v in all_feat_values if v < 0.4)
+        if bearish_count > len(all_feat_values) * 0.5:
+            raw_score *= 0.60
+
         high_value_signals = consolidation_signals + min(momentum_signals, 3)
         prebreakout_score = round(clip01(raw_score) * 100.0, 2)
         breakout_prob = round(math.tanh(prebreakout_score / 80.0), 4)
@@ -1235,7 +1269,23 @@ class PreBreakoutDetector:
             recent_move_check = (close[-1] - min(close[-20:])) / (min(close[-20:]) + 1e-9)
             if recent_move_check > 0.10:
                 reasons.append(f"WARNING: Already moved +{recent_move_check*100:.1f}% recently")
-        confidence = min(100, max(0, prebreakout_score * 0.9 + high_value_signals * 2))
+        strong_bullish = sum(1 for v in all_feat_values if v >= 0.7)
+        strong_bearish = sum(1 for v in all_feat_values if v <= 0.3)
+        total_indicators = max(len(all_feat_values), 1)
+
+        bullish_ratio = strong_bullish / total_indicators
+        bearish_drag = strong_bearish / total_indicators
+
+        feat_std = safe_std(all_feat_values, 0.15)
+        dispersion_penalty = min(1.0, feat_std / 0.25)
+
+        confidence = round(min(95, max(5,
+            bullish_ratio * 50.0 -
+            bearish_drag * 30.0 +
+            (1.0 - dispersion_penalty) * 15.0 +
+            min(high_value_signals, 8) * 1.5 +
+            10.0
+        )), 2)
         return {
             "symbol": symbol,
             "stage": stage,
