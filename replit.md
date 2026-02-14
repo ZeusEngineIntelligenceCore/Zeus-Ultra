@@ -68,6 +68,11 @@ Zeus is built around a modular architecture with a core trading engine supported
 - **Alerts**: Real-time Telegram alerts for trade open/close notifications, with an adaptive learning engine.
 
 ## Recent Changes
+- **2026-02-14**: Eliminated pre-breakout score inflation - combo bonuses changed from multiplicative stacking (up to 7x) to additive with 1.30x cap
+- **2026-02-14**: Confidence formula rewritten as independent directional measure (bullish agreement, bearish drag, dispersion penalty) instead of linear derivative of score
+- **2026-02-14**: Strengthened anti-extension filters - RSI>75 now 0.45x penalty (was 0.75x), recent moves >15% now 0.40x (was 0.65x)
+- **2026-02-14**: Fixed indicator biases in squeeze_pressure, donchian_position, cci_signal, williams_r_signal, stoch_rsi_signal - oversold no longer inflates pre-breakout scores
+- **2026-02-14**: Added bearish majority check - if >50% indicators below 0.4, score gets 0.60x penalty
 - **2026-02-10**: Fixed critical asyncio event loop conflict - coin analyzer and Telegram analysis endpoints now always create standalone exchange instances to avoid cross-thread Lock errors when the bot runs in a background thread
 - **2026-02-10**: Telegram analysis send now uses direct HTTP requests to Telegram API instead of bot's async objects, preventing cross-event-loop failures
 - **2026-02-10**: Proper Unicode emoji encoding in Telegram analysis messages
