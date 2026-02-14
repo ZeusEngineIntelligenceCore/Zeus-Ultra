@@ -151,15 +151,22 @@ class PreBreakoutDetector:
             return 0.5
         rsi = self.math.rsi(prices, self.cfg.rsi_period)
         if rsi < 25:
-            return clip01(0.9 + (25 - rsi) / 50)
+            return clip01(0.55)
         elif rsi < 35:
-            return clip01(0.7 + (35 - rsi) / 50)
+            return clip01(0.60)
+        elif rsi > 80:
+            return clip01(0.15)
         elif rsi > 75:
-            return clip01(0.3 - (rsi - 75) / 50)
+            return clip01(0.25)
+        elif rsi > 70:
+            return clip01(0.35)
         elif rsi > 65:
-            return clip01(0.5 - (rsi - 65) / 50)
-        normalized = (rsi - 30) / 40
-        return clip01(normalized)
+            return clip01(0.45)
+        elif rsi >= 45 and rsi <= 55:
+            return clip01(0.55)
+        elif rsi > 55:
+            return clip01(0.50 + (65 - rsi) / 50)
+        return clip01(0.50 + (rsi - 35) / 30)
 
     async def momentum_cf(self, prices: List[float]) -> float:
         if len(prices) < 4:
@@ -185,7 +192,7 @@ class PreBreakoutDetector:
         lo, hi = min(prices), max(prices)
         med = sorted(prices)[len(prices) // 2]
         raw = (hi - lo) / abs(med or 1e-9)
-        return clip01(raw / self.cfg.spike_cap)
+        return clip01(min(0.85, raw / self.cfg.spike_cap))
 
     async def pressure(self, vols: List[float], prices: List[float]) -> float:
         if len(prices) < 4:
@@ -289,9 +296,10 @@ class PreBreakoutDetector:
             buy_anchor = last - max_distance
         else:
             buy_anchor = raw_buy_anchor
+        min_sell_distance = last * 0.04
         sell_anchor = recent_high + (0.5 * impulse + 0.3 * candle) * atr_val
-        if sell_anchor < last + atr_val:
-            sell_anchor = last + atr_val
+        if sell_anchor < last + min_sell_distance:
+            sell_anchor = last + min_sell_distance
         buy_ladder = {}
         sell_ladder = {}
         for t in range(1, self.cfg.ladder_tiers + 1):
@@ -327,10 +335,10 @@ class PreBreakoutDetector:
     async def adx_strength(self, high: List[float], low: List[float], close: List[float]) -> float:
         adx, plus_di, minus_di = self.math.adx(high, low, close)
         if adx > 25 and plus_di > minus_di:
-            return clip01(0.7 + (adx - 25) / 50)
+            return min(0.78, clip01(0.55 + (adx - 25) / 120))
         elif adx > 25 and minus_di > plus_di:
-            return clip01(0.3 - (adx - 25) / 100)
-        return clip01(adx / 50)
+            return clip01(0.35 - (adx - 25) / 150)
+        return clip01(0.40 + adx / 120)
 
     async def aroon_signal(self, high: List[float], low: List[float]) -> float:
         aroon_up, aroon_down, aroon_osc = self.math.aroon(high, low)
@@ -344,15 +352,15 @@ class PreBreakoutDetector:
         st_val, is_uptrend = self.math.supertrend(high, low, close)
         distance = abs(close[-1] - st_val) / (close[-1] + 1e-9)
         if is_uptrend:
-            return clip01(0.7 + distance * 5)
-        return clip01(0.3 - distance * 5)
+            return clip01(0.58 + distance * 3)
+        return clip01(0.35 - distance * 3)
 
     async def vortex_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
         vi_plus, vi_minus = self.math.vortex_indicator(high, low, close)
         diff = vi_plus - vi_minus
         if vi_plus > vi_minus:
-            return clip01(0.6 + diff * 2)
-        return clip01(0.4 + diff * 2)
+            return clip01(0.55 + diff * 1.5)
+        return clip01(0.45 + diff * 1.5)
 
     async def linreg_trend(self, close: List[float]) -> float:
         val, slope, r2 = self.math.linear_regression(close, 20)
@@ -503,12 +511,12 @@ class PreBreakoutDetector:
         obv_slope = linear_slope(obv[-20:])
         price_slope = linear_slope(close[-20:])
         if obv_slope > 0 and price_slope > 0:
-            return clip01(0.7 + tanh01(obv_slope * 1e-6) * 0.25)
+            return clip01(0.60 + tanh01(obv_slope * 1e-6) * 0.20)
         elif obv_slope > 0 and price_slope < 0:
-            return clip01(0.75)
+            return clip01(0.70)
         elif obv_slope < 0 and price_slope > 0:
-            return clip01(0.35)
-        return clip01(0.4 + tanh01(obv_slope * 1e-6) * 0.3)
+            return clip01(0.30)
+        return clip01(0.40 + tanh01(obv_slope * 1e-6) * 0.20)
 
     async def pivot_distance_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
         if len(close) < 2:
@@ -519,12 +527,13 @@ class PreBreakoutDetector:
         current = close[-1]
         if current > r1:
             dist = (current - r1) / (r1 - pivot) if (r1 - pivot) > 1e-9 else 0
-            return clip01(0.7 + tanh01(dist) * 0.25)
+            if dist > 0.5:
+                return clip01(0.35)
+            return clip01(0.60 + tanh01(dist) * 0.15)
         elif current < s1:
-            dist = (s1 - current) / (pivot - s1) if (pivot - s1) > 1e-9 else 0
-            return clip01(0.8 + tanh01(dist) * 0.15)
+            return clip01(0.40)
         position = (current - s1) / (r1 - s1) if (r1 - s1) > 1e-9 else 0.5
-        return clip01(position)
+        return clip01(0.45 + position * 0.25)
 
     async def fibonacci_level_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
         if len(close) < 20:
@@ -539,13 +548,16 @@ class PreBreakoutDetector:
         fib_618 = swing_high - diff * 0.618
         current = close[-1]
         if current > fib_382:
-            return clip01(0.7 + (current - fib_382) / diff * 0.3)
+            above_ratio = (current - fib_382) / diff
+            if above_ratio > 0.3:
+                return clip01(0.35)
+            return clip01(0.55 + above_ratio * 0.3)
         elif current > fib_500:
-            return clip01(0.6)
+            return clip01(0.65)
         elif current > fib_618:
-            return clip01(0.7)
+            return clip01(0.60)
         else:
-            return clip01(0.8 + (fib_618 - current) / diff * 0.15)
+            return clip01(0.50)
 
     async def parabolic_sar_signal(self, high: List[float], low: List[float], close: List[float]) -> float:
         if len(close) < 5:
@@ -579,9 +591,9 @@ class PreBreakoutDetector:
                         ep = low[i]
                         af = min(af + af_step, af_max)
         if uptrend and close[-1] > sar:
-            return clip01(0.75 + (close[-1] - sar) / close[-1] * 5)
+            return clip01(0.60 + (close[-1] - sar) / close[-1] * 3)
         elif not uptrend and close[-1] < sar:
-            return clip01(0.3 - (sar - close[-1]) / close[-1] * 5)
+            return clip01(0.35 - (sar - close[-1]) / close[-1] * 3)
         return clip01(0.5)
 
     async def bid_ask_imbalance_signal(self, high: List[float], low: List[float], close: List[float], volume: List[float]) -> float:
@@ -1190,10 +1202,11 @@ class PreBreakoutDetector:
         stage = self.determine_stage(prebreakout_score, feats)
         buy_ladder, sell_ladder, buy_anchor, sell_anchor = self.build_price_ladders(close, feats)
         atr = self.calculate_atr(close)
-        min_distance = close[-1] * 0.005
+        min_distance = close[-1] * 0.015
         effective_atr = max(atr, min_distance)
         stop_loss = close[-1] - (2.0 * effective_atr)
-        take_profit = close[-1] + (3.0 * effective_atr)
+        min_take_profit_distance = close[-1] * 0.04
+        take_profit = close[-1] + max(3.0 * effective_atr, min_take_profit_distance)
         reasons = []
         if feats["squeeze"] > 0.7:
             reasons.append("TTM Squeeze Building")
