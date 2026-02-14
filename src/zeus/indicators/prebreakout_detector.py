@@ -282,6 +282,171 @@ class PreBreakoutDetector:
         rets = [abs(prices[i] - prices[i - 1]) for i in range(1, len(prices))]
         return safe_mean(rets[-14:], safe_mean(rets))
 
+    def _find_swing_highs(self, high: List[float], lookback: int = 5) -> List[float]:
+        swings = []
+        for i in range(lookback, len(high) - lookback):
+            if high[i] == max(high[i - lookback:i + lookback + 1]):
+                swings.append(high[i])
+        return swings
+
+    def _find_swing_lows(self, low: List[float], lookback: int = 5) -> List[float]:
+        swings = []
+        for i in range(lookback, len(low) - lookback):
+            if low[i] == min(low[i - lookback:i + lookback + 1]):
+                swings.append(low[i])
+        return swings
+
+    def _find_resistance_levels(self, high: List[float], close: List[float]) -> List[float]:
+        last = close[-1]
+        swing_highs = self._find_swing_highs(high)
+        resistances = sorted([s for s in swing_highs if s > last])
+        return resistances
+
+    def _find_support_levels(self, low: List[float], close: List[float]) -> List[float]:
+        last = close[-1]
+        swing_lows = self._find_swing_lows(low)
+        supports = sorted([s for s in swing_lows if s < last], reverse=True)
+        return supports
+
+    def calculate_trade_levels(self, high: List[float], low: List[float],
+                                close: List[float], volume: List[float],
+                                feats: Dict[str, float], rsi_val: float) -> Dict[str, float]:
+        last = close[-1]
+        atr = self.calculate_atr(close)
+        if atr < last * 0.001:
+            atr = last * 0.001
+
+        supports = self._find_support_levels(low, close)
+        resistances = self._find_resistance_levels(high, close)
+
+        if supports:
+            nearest_support = supports[0]
+            support_distance = last - nearest_support
+            if support_distance > 0 and support_distance < 5.0 * atr:
+                stop_loss = nearest_support - 0.3 * atr
+            else:
+                stop_loss = last - 2.0 * atr
+        else:
+            stop_loss = last - 2.0 * atr
+
+        recent_low_20 = min(low[-20:]) if len(low) >= 20 else min(low)
+        if stop_loss > last - 0.5 * atr:
+            stop_loss = last - 1.0 * atr
+        if stop_loss < recent_low_20 - atr:
+            stop_loss = recent_low_20 - 0.5 * atr
+
+        risk = last - stop_loss
+
+        tp_candidates = []
+
+        if resistances:
+            for r in resistances[:3]:
+                dist_pct = (r - last) / last * 100
+                if dist_pct >= 1.5:
+                    tp_candidates.append(("resistance", r, dist_pct))
+
+        window = min(len(high), 100)
+        swing_high = max(high[-window:])
+        swing_low = min(low[-window:])
+        if swing_high > swing_low:
+            slope = (close[-1] - close[-min(20, len(close))]) if len(close) >= 2 else 0
+            is_uptrend = slope >= 0
+            fib_levels = self.math.fibonacci_levels(swing_high, swing_low, is_uptrend=is_uptrend)
+            for key in ["fib_1.0", "fib_1.272", "fib_1.618"]:
+                fib_price = fib_levels.get(key, 0)
+                if fib_price > last:
+                    dist_pct = (fib_price - last) / last * 100
+                    if 1.5 <= dist_pct <= 15.0:
+                        tp_candidates.append(("fibonacci", fib_price, dist_pct))
+
+        bb_upper, bb_mid, bb_lower = self.math.bollinger_bands(close, 20, 2.0)
+        if bb_upper > last:
+            dist_pct = (bb_upper - last) / last * 100
+            if 1.0 <= dist_pct <= 15.0:
+                tp_candidates.append(("bollinger", bb_upper, dist_pct))
+
+        pivot_lookback = min(len(high), 20)
+        pivot_high = max(high[-pivot_lookback:])
+        pivot_low = min(low[-pivot_lookback:])
+        pivot_close = close[-1]
+        pivots = self.math.pivot_points(pivot_high, pivot_low, pivot_close)
+        for level_name in ["r1", "r2", "r3"]:
+            pivot_price = pivots.get(level_name, 0)
+            if pivot_price > last:
+                dist_pct = (pivot_price - last) / last * 100
+                if 1.5 <= dist_pct <= 15.0:
+                    tp_candidates.append(("pivot_" + level_name, pivot_price, dist_pct))
+
+        atr_target = last + 3.0 * atr
+        atr_dist_pct = (atr_target - last) / last * 100
+        tp_candidates.append(("atr_3x", atr_target, atr_dist_pct))
+
+        rr_min_tp = last + 2.0 * risk
+        rr_dist_pct = (rr_min_tp - last) / last * 100
+        tp_candidates.append(("risk_reward_2x", rr_min_tp, rr_dist_pct))
+
+        weights = {
+            "resistance": 3.0,
+            "fibonacci": 2.5,
+            "bollinger": 1.5,
+            "pivot_r1": 2.0,
+            "pivot_r2": 1.5,
+            "pivot_r3": 1.0,
+            "atr_3x": 2.0,
+            "risk_reward_2x": 1.8,
+        }
+
+        if not tp_candidates:
+            take_profit = last + 3.0 * atr
+        else:
+            valid_targets = [c for c in tp_candidates if c[2] >= 2.0]
+            if not valid_targets:
+                valid_targets = tp_candidates
+
+            total_weight = sum(weights.get(c[0], 1.0) for c in valid_targets)
+            weighted_tp = sum(c[1] * weights.get(c[0], 1.0) for c in valid_targets) / total_weight
+            take_profit = weighted_tp
+
+        min_rr_tp = last + 2.0 * risk
+        if take_profit < min_rr_tp:
+            rr_nudge = min_rr_tp * 0.4 + take_profit * 0.6
+            take_profit = max(take_profit, rr_nudge)
+
+        min_absolute_tp = last * 1.03
+        if take_profit < min_absolute_tp:
+            take_profit = min_absolute_tp
+
+        max_tp = last * 1.15
+        if take_profit > max_tp:
+            take_profit = max_tp
+
+        tp_pct = round((take_profit - last) / last * 100, 2)
+        sl_pct = round((last - stop_loss) / last * 100, 2)
+        rr_ratio = round(tp_pct / sl_pct, 2) if sl_pct > 0 else 0
+
+        technical_candidates = [c for c in tp_candidates if c[0] not in ("atr_3x", "risk_reward_2x")]
+        if technical_candidates:
+            dominant = max(technical_candidates, key=lambda c: c[1] * weights.get(c[0], 1.0))
+            tp_method = dominant[0]
+        elif tp_candidates:
+            tp_method = "atr_volatility"
+        else:
+            tp_method = "composite"
+
+        return {
+            "stop_loss": round(stop_loss, 8),
+            "take_profit": round(take_profit, 8),
+            "tp_pct": tp_pct,
+            "sl_pct": sl_pct,
+            "risk_reward": rr_ratio,
+            "tp_method": tp_method,
+            "tp_candidates_count": len(tp_candidates),
+            "nearest_resistance": round(resistances[0], 8) if resistances else None,
+            "nearest_support": round(supports[0], 8) if supports else None,
+            "bb_upper": round(bb_upper, 8),
+            "atr": round(atr, 8),
+        }
+
     def build_price_ladders(self, prices: List[float], feats: Dict[str, float]) -> Tuple[Dict, Dict, float, float]:
         last = prices[-1]
         window = max(10, len(prices) // 3)
@@ -298,10 +463,7 @@ class PreBreakoutDetector:
             buy_anchor = last - max_distance
         else:
             buy_anchor = raw_buy_anchor
-        min_sell_distance = last * 0.04
         sell_anchor = recent_high + (0.5 * impulse + 0.3 * candle) * atr_val
-        if sell_anchor < last + min_sell_distance:
-            sell_anchor = last + min_sell_distance
         buy_ladder = {}
         sell_ladder = {}
         for t in range(1, self.cfg.ladder_tiers + 1):
@@ -1203,12 +1365,10 @@ class PreBreakoutDetector:
         enhanced_prob = round(1.0 - math.exp(-prebreakout_score / 75.0), 4)
         stage = self.determine_stage(prebreakout_score, feats)
         buy_ladder, sell_ladder, buy_anchor, sell_anchor = self.build_price_ladders(close, feats)
-        atr = self.calculate_atr(close)
-        min_distance = close[-1] * 0.015
-        effective_atr = max(atr, min_distance)
-        stop_loss = close[-1] - (2.0 * effective_atr)
-        min_take_profit_distance = close[-1] * 0.04
-        take_profit = close[-1] + max(3.0 * effective_atr, min_take_profit_distance)
+        trade_levels = self.calculate_trade_levels(high, low, close, volume, feats, rsi_val)
+        stop_loss = trade_levels["stop_loss"]
+        take_profit = trade_levels["take_profit"]
+        atr = trade_levels["atr"]
         reasons = []
         is_overbought = rsi_val > 65
         is_extended = False
@@ -1313,6 +1473,13 @@ class PreBreakoutDetector:
             "sell_ladder": sell_ladder,
             "stop_loss": round(stop_loss, 8),
             "take_profit": round(take_profit, 8),
+            "tp_pct": trade_levels["tp_pct"],
+            "sl_pct": trade_levels["sl_pct"],
+            "risk_reward": trade_levels["risk_reward"],
+            "tp_method": trade_levels["tp_method"],
+            "nearest_resistance": trade_levels.get("nearest_resistance"),
+            "nearest_support": trade_levels.get("nearest_support"),
+            "bb_upper": trade_levels.get("bb_upper"),
             "atr": round(atr, 8),
             "features": feats,
             "reasons": reasons,
@@ -1347,6 +1514,13 @@ class MultiTimeframeAnalyzer:
             "sell_ladder": core["sell_ladder"],
             "stop_loss": core["stop_loss"],
             "take_profit": core["take_profit"],
+            "tp_pct": core.get("tp_pct", 0),
+            "sl_pct": core.get("sl_pct", 0),
+            "risk_reward": core.get("risk_reward", 0),
+            "tp_method": core.get("tp_method", "composite"),
+            "nearest_resistance": core.get("nearest_resistance"),
+            "nearest_support": core.get("nearest_support"),
+            "bb_upper": core.get("bb_upper"),
             "atr": core["atr"],
             "features": core["features"],
             "timeframe_alignment": round(alignment, 4),

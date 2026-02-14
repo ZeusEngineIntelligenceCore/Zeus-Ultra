@@ -489,18 +489,25 @@
                     ` : ''}
 
                     <div class="trade-levels">
+                        <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Method: ${analysis.tp_method || 'composite'}</div>
                         <div class="level-row">
                             <span class="level-label">🎯 Entry Point</span>
                             <span class="level-value">$${formatPrice(analysis.buy_anchor || 0)}</span>
                         </div>
                         <div class="level-row">
                             <span class="level-label">🛑 Stop Loss</span>
-                            <span class="level-value" style="color: var(--danger);">$${formatPrice(analysis.stop_loss || 0)}</span>
+                            <span class="level-value" style="color: var(--danger);">$${formatPrice(analysis.stop_loss || 0)} (-${(analysis.sl_pct || 0).toFixed(1)}%)</span>
                         </div>
                         <div class="level-row">
                             <span class="level-label">💰 Take Profit</span>
-                            <span class="level-value" style="color: var(--success);">$${formatPrice(analysis.take_profit || 0)}</span>
+                            <span class="level-value" style="color: var(--success);">$${formatPrice(analysis.take_profit || 0)} (+${(analysis.tp_pct || 0).toFixed(1)}%)</span>
                         </div>
+                        <div class="level-row" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 0.25rem; padding-top: 0.5rem;">
+                            <span class="level-label">📊 Risk/Reward</span>
+                            <span class="level-value" style="color: ${(analysis.risk_reward || 0) >= 2.0 ? 'var(--success)' : (analysis.risk_reward || 0) >= 1.5 ? '#ecc94b' : 'var(--danger)'};">1:${(analysis.risk_reward || 0).toFixed(1)}</span>
+                        </div>
+                        ${analysis.nearest_resistance ? `<div class="level-row" style="font-size: 0.75rem;"><span class="level-label" style="color: var(--text-secondary);">Resistance</span><span class="level-value" style="color: var(--text-secondary);">$${formatPrice(analysis.nearest_resistance)}</span></div>` : ''}
+                        ${analysis.nearest_support ? `<div class="level-row" style="font-size: 0.75rem;"><span class="level-label" style="color: var(--text-secondary);">Support</span><span class="level-value" style="color: var(--text-secondary);">$${formatPrice(analysis.nearest_support)}</span></div>` : ''}
                     </div>
 
                     <button class="send-telegram-btn" onclick="sendToTelegram('${data.symbol}')">

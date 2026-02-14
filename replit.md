@@ -68,6 +68,10 @@ Zeus is built around a modular architecture with a core trading engine supported
 - **Alerts**: Real-time Telegram alerts for trade open/close notifications, with an adaptive learning engine.
 
 ## Recent Changes
+- **2026-02-14**: Replaced hardcoded 4.5% take profit with professional trade level engine using swing high resistance, Fibonacci extensions (1.0/1.272/1.618), Bollinger Band upper, pivot points (R1/R2/R3 from 20-bar range), ATR-scaled targets, and weighted composite averaging - each coin gets unique TP based on its own price structure
+- **2026-02-14**: Stop loss now derived from nearest swing low support levels (placed 0.3 ATR below support) instead of flat 2x ATR
+- **2026-02-14**: Trade levels display shows methodology (resistance/fibonacci/pivot/atr_volatility/composite), risk/reward ratio with color coding, nearest resistance and support levels
+- **2026-02-14**: TP capped at 15% max to prevent unrealistic targets; minimum 3% absolute floor; risk/reward enforcement blended (40/60) to avoid dominating composite
 - **2026-02-14**: Eliminated pre-breakout score inflation - combo bonuses changed from multiplicative stacking (up to 7x) to additive with 1.30x cap
 - **2026-02-14**: Confidence formula rewritten as independent directional measure (bullish agreement, bearish drag, dispersion penalty) instead of linear derivative of score
 - **2026-02-14**: Strengthened anti-extension filters - RSI>75 now 0.45x penalty (was 0.75x), recent moves >15% now 0.40x (was 0.65x)

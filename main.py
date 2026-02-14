@@ -772,12 +772,18 @@ def api_analyze_to_telegram(symbol):
                     msg_lines.append(f"\u2705 {reason}")
 
             fmt = lambda v: f"${v:.8f}" if price < 1 else f"${v:.4f}"
+            tp_pct = analysis.get('tp_pct', 0)
+            sl_pct = analysis.get('sl_pct', 0)
+            rr = analysis.get('risk_reward', 0)
+            tp_method = analysis.get('tp_method', 'composite')
             msg_lines.extend([
                 "", "\u2501\u2501\u2501 <b>TRADE LEVELS</b> \u2501\u2501\u2501",
+                f"<i>Method: {tp_method}</i>",
                 f"\U0001F3AF Entry (Market): {fmt(price)}",
                 f"\U0001F4CD Limit Entry: {fmt(analysis.get('buy_anchor', price))}",
-                f"\U0001F6D1 Stop Loss: {fmt(analysis.get('stop_loss', 0))}",
-                f"\U0001F4B0 Take Profit: {fmt(analysis.get('take_profit', 0))}", "",
+                f"\U0001F6D1 Stop Loss: {fmt(analysis.get('stop_loss', 0))} (-{sl_pct:.1f}%)",
+                f"\U0001F4B0 Take Profit: {fmt(analysis.get('take_profit', 0))} (+{tp_pct:.1f}%)",
+                f"\U0001F4CA Risk/Reward: 1:{rr:.1f}", "",
                 f"\u23F0 {format_la_time()}"
             ])
 

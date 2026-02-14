@@ -931,12 +931,18 @@
                         </div>
                     </div>
                     <div style="background: rgba(66,153,225,0.1); border-radius: 0.75rem; padding: 1rem; border: 1px solid rgba(66,153,225,0.2);">
-                        <div style="font-size: 0.875rem; font-weight: 600; color: #4299e1; margin-bottom: 0.75rem;">Trade Levels</div>
+                        <div style="font-size: 0.875rem; font-weight: 600; color: #4299e1; margin-bottom: 0.75rem;">Trade Levels <span style="font-size: 0.7rem; color: #718096; font-weight: 400;">(${analysis.tp_method || 'composite'})</span></div>
                         <div style="font-size: 0.875rem;">
                             <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Entry (Market):</span> <span style="font-family: monospace;">$${formatPrice(price)}</span></div>
                             <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Limit Entry:</span> <span style="font-family: monospace; color: #9f7aea;">$${formatPrice(analysis.buy_anchor || price)}</span></div>
-                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Stop Loss:</span> <span style="font-family: monospace; color: #f56565;">$${formatPrice(analysis.stop_loss || 0)}</span></div>
-                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Take Profit:</span> <span style="font-family: monospace; color: #48bb78;">$${formatPrice(analysis.take_profit || 0)} (+${price > 0 ? (((analysis.take_profit - price) / price) * 100).toFixed(1) : '0'}%)</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Stop Loss:</span> <span style="font-family: monospace; color: #f56565;">$${formatPrice(analysis.stop_loss || 0)} (-${(analysis.sl_pct || 0).toFixed(1)}%)</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;"><span style="color: #a0aec0;">Take Profit:</span> <span style="font-family: monospace; color: #48bb78;">$${formatPrice(analysis.take_profit || 0)} (+${(analysis.tp_pct || 0).toFixed(1)}%)</span></div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.375rem 0; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 0.25rem; padding-top: 0.5rem;">
+                                <span style="color: #a0aec0;">Risk/Reward:</span>
+                                <span style="font-family: monospace; color: ${(analysis.risk_reward || 0) >= 2.0 ? '#48bb78' : (analysis.risk_reward || 0) >= 1.5 ? '#ecc94b' : '#f56565'};">1:${(analysis.risk_reward || 0).toFixed(1)}</span>
+                            </div>
+                            ${analysis.nearest_resistance ? `<div style="display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.75rem;"><span style="color: #718096;">Nearest Resistance:</span> <span style="font-family: monospace; color: #718096;">$${formatPrice(analysis.nearest_resistance)}</span></div>` : ''}
+                            ${analysis.nearest_support ? `<div style="display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.75rem;"><span style="color: #718096;">Nearest Support:</span> <span style="font-family: monospace; color: #718096;">$${formatPrice(analysis.nearest_support)}</span></div>` : ''}
                         </div>
                     </div>
                 </div>
