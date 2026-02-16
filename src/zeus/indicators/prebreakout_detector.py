@@ -335,6 +335,10 @@ class PreBreakoutDetector:
         if stop_loss < recent_low_20 - atr:
             stop_loss = recent_low_20 - 0.5 * atr
 
+        min_sl_distance = last * 0.015
+        if last - stop_loss < min_sl_distance:
+            stop_loss = last - min_sl_distance
+
         risk = last - stop_loss
 
         tp_candidates = []

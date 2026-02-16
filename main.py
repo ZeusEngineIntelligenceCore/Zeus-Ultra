@@ -15,6 +15,23 @@ import pytz
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import logging
+
+log_dir = Path("logs")
+log_dir.mkdir(exist_ok=True)
+
+from logging.handlers import RotatingFileHandler
+
+file_handler = RotatingFileHandler("logs/zeus.log", maxBytes=5*1024*1024, backupCount=3)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[file_handler, logging.StreamHandler()]
+)
+
 from flask import render_template, jsonify, request
 from flask_login import current_user
 from app import app
@@ -28,6 +45,7 @@ LA_TZ = pytz.timezone('America/Los_Angeles')
 bot_instance = None
 bot_thread = None
 bot_lock = threading.Lock()
+telegram_polling_instance = None
 
 bot_status = {
     "running": False,
@@ -432,6 +450,8 @@ def toggle_bot():
         if bot_status["running"]:
             if bot_instance:
                 bot_instance.running = False
+            if telegram_polling_instance:
+                telegram_polling_instance._bot_ref = None
             bot_status["running"] = False
             bot_status["uptime_start"] = None
             return jsonify({
@@ -844,6 +864,47 @@ def api_pairs():
         return jsonify({"pairs": []}), 200
 
 
+def start_telegram_polling():
+    global telegram_polling_instance
+    telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not telegram_token or not telegram_chat_id:
+        print("[TELEGRAM] No TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID set, skipping polling")
+        return
+
+    from src.zeus.alerts.telegram_bot import TelegramAlerts, AlertConfig, TELEGRAM_AVAILABLE
+    if not TELEGRAM_AVAILABLE:
+        print("[TELEGRAM] python-telegram-bot not installed, skipping polling")
+        return
+
+    def _run_polling():
+        global telegram_polling_instance
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            alert_config = AlertConfig(enabled=True)
+            alert_config.enforce_trade_only_alerts()
+            tg = TelegramAlerts(telegram_token, telegram_chat_id, alert_config)
+            telegram_polling_instance = tg
+
+            async def _start():
+                await tg.initialize()
+                await tg.start_command_listener()
+                print("[TELEGRAM] Command listener started - commands active without bot toggle")
+                while True:
+                    await asyncio.sleep(3600)
+
+            loop.run_until_complete(_start())
+        except Exception as e:
+            print(f"[TELEGRAM] Polling error: {e}")
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_run_polling, daemon=True)
+    t.start()
+    print("[TELEGRAM] Starting Telegram polling in background thread")
+
+
 def run_trading_bot():
     global bot_instance
 
@@ -879,6 +940,8 @@ def run_trading_bot():
                                    telegram_token=telegram_token,
                                    telegram_chat_id=telegram_chat_id,
                                    mode=mode)
+            if telegram_polling_instance:
+                bot_instance.telegram = telegram_polling_instance
             await bot_instance.run_forever()
         except Exception as e:
             with bot_lock:
@@ -942,5 +1005,7 @@ def run_server():
 if __name__ == "__main__":
     print("[BOT] Bot ready - toggle ON from dashboard to start trading")
     bot_status["running"] = False
-    
+
+    start_telegram_polling()
+
     run_server()

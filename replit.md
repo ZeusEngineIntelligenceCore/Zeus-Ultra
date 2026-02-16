@@ -68,6 +68,10 @@ Zeus is built around a modular architecture with a core trading engine supported
 - **Alerts**: Real-time Telegram alerts for trade open/close notifications, with an adaptive learning engine.
 
 ## Recent Changes
+- **2026-02-16**: Telegram commands now work independently of bot toggle - polling starts on server boot, commands active 24/7 even when bot is stopped
+- **2026-02-16**: Centralized logging with RotatingFileHandler (5MB, 3 backups) - activity log in dashboard now populates from logs/zeus.log
+- **2026-02-16**: Stop loss minimum distance enforced at 1.5% to prevent overly tight stops (was allowing -0.8%)
+- **2026-02-16**: Removed duplicate logging.basicConfig from bot.py - all logging configured centrally in main.py
 - **2026-02-14**: Replaced hardcoded 4.5% take profit with professional trade level engine using swing high resistance, Fibonacci extensions (1.0/1.272/1.618), Bollinger Band upper, pivot points (R1/R2/R3 from 20-bar range), ATR-scaled targets, and weighted composite averaging - each coin gets unique TP based on its own price structure
 - **2026-02-14**: Stop loss now derived from nearest swing low support levels (placed 0.3 ATR below support) instead of flat 2x ATR
 - **2026-02-14**: Trade levels display shows methodology (resistance/fibonacci/pivot/atr_volatility/composite), risk/reward ratio with color coding, nearest resistance and support levels

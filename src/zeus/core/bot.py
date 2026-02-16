@@ -34,10 +34,6 @@ from ..execution.predictive_orders import PredictiveLimitOrderEngine
 from ..indicators.mtf_fusion import MultiTimeframeFusion, TimeframeIndicators
 from .state import StateManager, TradeRecord
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger("Zeus.Bot")
 
 KILL_SWITCH_FILE = "KILL_SWITCH"
@@ -150,9 +146,10 @@ class ZeusBot:
             return False
         self.advanced_risk.reset_circuit_breaker()
         self.advanced_risk.reset_daily_stats()
-        await self.telegram.initialize()
+        if not self.telegram._polling_active:
+            await self.telegram.initialize()
+            await self.telegram.start_command_listener()
         self.telegram.set_bot_reference(self)
-        await self.telegram.start_command_listener()
         await self.state.update_config(mode=self.mode)
         await self._refresh_balance()
         await self._refresh_pairs()
@@ -167,7 +164,9 @@ class ZeusBot:
         self.running = False
         await self.state.set_status("STOPPED")
         await self.telegram.send_bot_status("STOPPED", self.mode, 0)
-        await self.telegram.stop_command_listener()
+        self.telegram._bot_ref = None
+        if not TelegramAlerts._polling_instance:
+            await self.telegram.stop_command_listener()
         await self.exchange.disconnect()
         logger.info("Zeus Bot stopped.")
 
