@@ -904,7 +904,11 @@ class TelegramAlerts:
                     reply_markup=self.get_main_keyboard()
                 )
             except Exception as e:
-                logger.error(f"Callback error: {e}")
+                err_str = str(e)
+                if "is not modified" in err_str or "Message is not modified" in err_str:
+                    pass
+                else:
+                    logger.error(f"Callback error: {e}")
 
     async def cmd_start(self, update: 'Update', context: 'ContextTypes.DEFAULT_TYPE') -> None:
         welcome = """
